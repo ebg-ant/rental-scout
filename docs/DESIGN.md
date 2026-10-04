@@ -14,7 +14,7 @@ The agent asks one question, `python3 -m scout next`, and gets one task back. Al
 `data/store.json`, saved atomically after every command.
 
 ```
-start -> [sweep -> ingest]* -> [enrich -> (score)]* -> finish
+start -> [sweep page -> ingest]* -> [enrich -> (score)]* -> finish
             |                     |          |
         dedupe, diff,          gate, risk   verdict
         prefilter, card check   checks
@@ -33,10 +33,10 @@ start -> [sweep -> ingest]* -> [enrich -> (score)]* -> finish
 | `flags.py` | Scam, cost and information flags |
 | `rubric.py` | Validates scores and evidence; weighted score, floor, ceiling |
 | `verdict.py` | One verdict, one reason |
-| `sweeps.py` | Price-band URLs; splits a band when a site caps results |
+| `sweeps.py` | Full and incremental sweeps; price-band, sort and page URLs; splits a band when a site caps results |
 | `pipeline.py` | The state machine and everything that touches a record |
 | `store.py` | Atomic JSON store, lock, backups |
-| `summary.py`, `report.py`, `calibrate.py` | Outputs |
+| `summary.py`, `report.py`, `export.py`, `calibrate.py` | Outputs: daily note, interactive page, spreadsheet, taste check |
 
 ## Decisions worth knowing
 
@@ -69,14 +69,10 @@ site, the same first photo or title at the same rent (a repost). The same door w
 only linked as a possible duplicate: big buildings list many similar units. Addresses found on the
 detail page trigger a second look and a merge.
 
-**What re-enters the queue.** New listings; price changes and relistings, but only if the listing is
-still in the running (a price drop on a no-cats building is recorded, not re-opened); listings a
-config change let through the gate; criteria whose wording changed; and shortlisted listings no sweep
-has seen for `limits.recheck_after_days`.
-
-**Delisting needs proof of absence.** A listing is marked off-market when its page is gone, or when it is
-missing from `limits.delist_after_missed_sweeps` sweeps that fully covered that site. Blocked, capped
-or early-stopped sweeps prove nothing and are not counted.
+**What re-enters the queue.** New listings; price changes and relistings, but only if the listing could
+still be in the running whatever the rent is now (a price drop on a no-cats building is recorded, not
+re-opened); listings a config change let through the gate; criteria whose wording changed; shortlisted
+listings on a re-check timer; and anything the user asks to refresh.
 
 **Config changes apply retroactively.** `start` compares a hash of the config with the one last used and
 re-judges every stored listing if it changed. Weights re-rank without re-scoring; each criterion
@@ -92,9 +88,63 @@ buttons on every listing. `report.html#<id>` opens one scorecard, and the summar
 referrer, and shows a placeholder if one is gone. It also accepts local paths under `photos/` next to
 the report (the demo uses this), so a local cache could be added without touching the page.
 
-**Refreshing is the same path as reading.** There is no separate scraper. `scout refresh` marks listings
-for a fresh look and they flow through `enrich` again, in the browser, under the same limits.
-`scripts/rebuild.sh` covers everything that needs no browser.
+## Keeping it fresh
+
+Four mechanisms, all driven by `next`, all through the browser, all under the same limits.
+
+| Mechanism | When | What it catches |
+| --- | --- | --- |
+| Incremental sweep | Every run | New listings. Newest first; stops at the first page with nothing new or changed |
+| Full sweep | First run, every `refresh.full_sweep_every_days`, when the searches or price range change, or `start --full` | Price changes on older listings; listings that have gone |
+| Timed re-check | A TOUR unseen for `recheck_tour_after_days`, a WATCH for `recheck_watch_after_days`; at most `max_rechecks_per_run` | Shortlisted homes that were rented or re-priced |
+| Refresh on request | `scout refresh`, `scripts/refresh.sh` | Whatever the user wants looked at again |
+
+**One task is one results page.** The agent hands in a page and the code decides: next page, stop, or split
+the price band. That keeps the stopping rule out of the model's hands and makes every page a checkpoint.
+
+**A full sweep belongs to the site, not the run.** It lives in `coverage[source].cycle` and is rationed by
+`limits.max_search_pages_per_run`, so a 30-page first read spreads over several runs without starving
+evaluation. Later runs top up newest-first, then carry on where the full sweep stopped. While one is under
+way the top-up may use only half the site's pages, so the full sweep always moves forward. Listings come
+and go overnight and shift the pages, so a search picked up on a later day re-reads the last page it
+reached. A night of unusually heavy removals could still slide a few cards past it; that is one reason a
+PASS listing needs two missed sweeps, and a shortlisted one has its page opened, before being written off.
+
+**Pages are read in runs.** In the run that begins a full sweep, each search of a site gets an equal share of
+consecutive pages, so every borough's newest listings are read on day one. Carried-over sweeps finish one
+search before starting the next. Consecutive matters on sites with only a pager, where the next page is
+then one click away; reaching a deep page from scratch is paced click by click and charged to the throttle.
+
+**A sweep has to earn its say.** A finished full sweep counts as proof of absence only if no band was capped,
+every band read at least 80% of the results the site reported, and it saw at least one card.
+
+**Delisting needs proof of absence.** A listing is marked off-market when its page is gone, or when it is
+missing from `refresh.delist_after_missed_sweeps` *finished* full sweeps of a site that sweeps had found
+it on. Incremental, blocked or capped sweeps prove nothing. Listings the user pasted in, which the saved
+search may never return, are exempt. A missing TOUR or WATCH is never dropped on absence: its page is
+opened. A home seen under another link since the sweep began (a repost, another site) is alive.
+
+**"Seen" means seen.** `checked_at` is the later of the last sighting in results and the last page read.
+Reading a page resets the missed-sweep count. A dead link kills that link only; the home is delisted
+when no link is left.
+
+**Card rent and page rent are tracked apart, link by link.** A card may show a from-price or a net figure,
+and one home may be posted twice at two rents. Only a change in the same place on the same link counts as
+a price change, and a card figure is never written into the facts.
+
+**News is announced once.** The summary leads with listings reaching TOUR or WATCH for the first time. A
+re-check that changes nothing is not news. What a run found but never reported, because it was abandoned,
+is carried into the next run's summary.
+
+**The throttle is a floor, not a target.** The pause is counted from the planned load (hand-out plus wait) and
+again from the moment the page is handed in, whichever is later, so the gap holds however long the agent
+dawdles. Among sites with a page to read, the one that has waited longest goes next, so waits overlap and
+the caution costs little.
+
+**Days are calendar days where the user is.** A run at 9:00 counts yesterday's 9:05 run as a day ago, so
+"every 7 days" means every seventh daily run, and an evening run is not pushed into tomorrow by UTC.
+
+`scripts/rebuild.sh` covers everything that needs no browser: re-judge, report, spreadsheet.
 
 **Blocks end the site's day.** `blocked` marks the source unusable for the rest of the run. There is no
 retry path.
@@ -105,8 +155,8 @@ retry path.
 id, seq                      stable id from the first site it was seen on
 card                         latest search-card data
 address, address_key         raw text; {street, unit, zip, borough} or null
-sources[]                    {source, source_id, url, rent, first_seen, last_seen, active, missed_sweeps}
-price_history[]              {date, source, rent}
+sources[]                    {source, source_id, url, rent, first_seen, last_seen, active, missed_sweeps, swept}
+price_history[]              {date, source, source_id, rent, where: card|page}
 facts, provenance, unknown   what the page said, where, and what could not be found
 raw_text                     the page text quotes are checked against
 photos[], floor_plans[]      {url, caption} in gallery order; evidence points at photos by number

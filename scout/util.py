@@ -33,8 +33,22 @@ def now_iso():
     return now().isoformat().replace("+00:00", "Z")
 
 
+def local_date(iso):
+    """The calendar date where the user is. An evening run in New York is already
+    tomorrow in UTC, which would make "every 7 days" and "2 days unseen" drift."""
+    return parse_time(iso).astimezone().date()
+
+
 def today_iso():
-    return now().date().isoformat()
+    return local_date(now_iso()).isoformat()
+
+
+def is_real_date(text):
+    try:
+        dt.date(*[int(part) for part in str(text).split("-")])
+        return bool(re.match(r"^\d{4}-\d{2}-\d{2}$", str(text)))
+    except (ValueError, TypeError):
+        return False
 
 
 def parse_time(value):
@@ -42,6 +56,16 @@ def parse_time(value):
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=dt.timezone.utc)
     return parsed
+
+
+def add_seconds(iso, seconds):
+    return (parse_time(iso) + dt.timedelta(seconds=seconds)).isoformat().replace("+00:00", "Z")
+
+
+def days_between(earlier_iso, later_iso):
+    """Whole calendar days. A run at 9:00 counts yesterday's 9:05 run as one day ago, so
+    "every 7 days" means every seventh daily run rather than slipping to the eighth."""
+    return (local_date(later_iso) - local_date(earlier_iso)).days
 
 
 def seconds_between(earlier_iso, later_iso):

@@ -1,0 +1,16 @@
+{
+  "id": "streeteasy-demo-41-15-29-street-12f",
+  "source": "streeteasy",
+  "url": "https://streeteasy.com/building/demo-41-15-29-street/12f",
+  "stop_early": true,
+  "raw_text": "High-floor one bedroom in Long Island City with skyline views. Elevator, doorman, gym. Washer dryer in unit. Pets considered case by case. Available now.",
+  "facts": {
+    "cats": "case_by_case"
+  },
+  "provenance": {
+    "cats": {
+      "where": "description",
+      "quote": "Pets considered case by case"
+    }
+  }
+}

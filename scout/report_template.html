@@ -25,6 +25,7 @@ a { color: var(--link); }
 .wrap { max-width: 1040px; margin: 0 auto; padding: 24px 16px 80px; }
 header h1 { font-size: 24px; margin: 0; letter-spacing: -0.01em; }
 header .sub { color: var(--muted); margin-top: 2px; }
+.linkish { background: none; border: 0; padding: 0; font: inherit; color: var(--link); text-decoration: underline; cursor: pointer; }
 .notice { margin-top: 12px; padding: 10px 12px; border-radius: 8px; background: var(--watch-bg); color: var(--ink);
   border-left: 3px solid var(--watch); font-size: 14px; }
 .tabs { display: flex; gap: 6px; margin: 20px 0 12px; flex-wrap: wrap; }
@@ -137,6 +138,7 @@ footer { color: var(--muted); font-size: 12px; margin-top: 30px; }
   <header>
     <h1>Rental Scout</h1>
     <div class="sub" id="sub"></div>
+    <div class="sub small" id="fresh-line"></div>
     <div id="notices"></div>
   </header>
   <div class="tabs" role="tablist" id="tabs"></div>
@@ -180,20 +182,24 @@ function link(u, text) {
   var ok = safeUrl(u);
   return ok ? '<a href="' + esc(ok) + '" target="_blank" rel="noopener noreferrer">' + esc(text || u) + "</a>" : esc(text || u);
 }
-// Images may be remote, or local copies under photos/ next to this file.
-function imgUrl(u) { return /^https?:\/\//i.test(u || "") || /^photos\/[\w.\/-]+$/.test(u || "") ? u : null; }
+// Images may be remote, local copies under photos/ next to this file, or embedded.
+function imgUrl(u) { return /^https?:\/\//i.test(u || "") || /^photos\/[\w.\/-]+$/.test(u || "") || /^data:image\//i.test(u || "") ? u : null; }
 // All of a listing's images in one numbered run: photos first, then floor plans.
 function images(l) {
-  return l.photos.map(function (p, i) { return {url: p.url, label: "Photo " + (i + 1) + (p.caption ? ": " + p.caption : "")}; })
-    .concat(l.floor_plans.map(function (p, i) { return {url: p.url, label: "Floor plan" + (l.floor_plans.length > 1 ? " " + (i + 1) : "") + (p.caption ? ": " + p.caption : "")}; }));
+  return l.photos.map(function (p, i) { return {url: p.url, tag: String(i + 1), label: "Photo " + (i + 1) + " of " + l.photos.length + (p.caption ? ": " + p.caption : "")}; })
+    .concat(l.floor_plans.map(function (p, i) { return {url: p.url, tag: "plan", label: "Floor plan" + (l.floor_plans.length > 1 ? " " + (i + 1) : "") + (p.caption ? ": " + p.caption : "")}; }));
 }
-function shot(l, index, mini) {
-  var item = images(l)[index], url = item && imgUrl(item.url);
-  if (!url) return "";
-  var tag = index < l.photos.length ? String(index + 1) : "plan";
-  return '<button type="button" class="shot' + (mini ? " mini" : "") + '" data-shot="' + index + '" title="' + esc(item.label) + '">' +
-    '<img loading="lazy" alt="' + esc(item.label) + '" src="' + esc(url) + '" onerror="this.parentNode.classList.add(\'broken\');this.remove()">' +
-    '<span class="no">' + tag + "</span></button>";
+// Every strip of pictures on the page registers its list here, so one lightbox serves them all.
+var SETS = [];
+function strip(title, items, mini) {
+  var usable = items.filter(function (i) { return imgUrl(i.url); });
+  if (!usable.length) return "";
+  var set = SETS.push({title: title, items: usable}) - 1;
+  return usable.map(function (item, index) {
+    return '<button type="button" class="shot' + (mini ? " mini" : "") + '" data-set="' + set + '" data-shot="' + index + '" title="' + esc(item.label) + '">' +
+      '<img loading="lazy" alt="' + esc(item.label) + '" src="' + esc(item.url) + '" onerror="this.parentNode.classList.add(\'broken\');this.remove()">' +
+      '<span class="no">' + esc(item.tag) + "</span></button>";
+  }).join("");
 }
 // A link that scrolls the listing page to the quoted words (supported by Chrome and Edge).
 function quoteLink(l, quote) {
@@ -204,8 +210,8 @@ function quoteLink(l, quote) {
     '" target="_blank" rel="noopener noreferrer" title="Open the listing at these words">' + text + "</a>";
 }
 function siteName(s) { return (DATA.source_labels || {})[s] || s; }
-function tabOf(l) { return l.verdict === "PASS (risk)" ? "PASS" : l.verdict; }
-function vClass(l) { return l.verdict === "PASS (risk)" ? "v-RISK" : "v-" + l.verdict; }
+function tabOf(l) { return l.verdict === "PASS (risk)" || l.verdict === "GONE" ? "PASS" : l.verdict; }
+function vClass(l) { return l.verdict === "PASS (risk)" ? "v-RISK" : l.verdict === "GONE" ? "v-PASS" : "v-" + l.verdict; }
 function isFresh(l) { return l.is_new || l.changed || l.verdict_changed; }
 
 var state = {tab: "TOUR", q: "", hood: "", beds: "", source: "", sort: "score", fresh: false, offmarket: false};
@@ -227,9 +233,12 @@ function passesFilters(l, ignoreTab) {
   return true;
 }
 
+// The figure to show and sort by: net effective if known, else gross, else only what was advertised.
+function rentOf(l) { var r = l.rent_net != null ? l.rent_net : l.rent_gross != null ? l.rent_gross : l.rent_advertised; return r == null ? 1e9 : r; }
+
 var sorters = {
-  score: function (a, b) { return (b.score == null ? -1 : b.score) - (a.score == null ? -1 : a.score) || (a.rent_net || 1e9) - (b.rent_net || 1e9); },
-  rent: function (a, b) { return (a.rent_net || 1e9) - (b.rent_net || 1e9); },
+  score: function (a, b) { return (b.score == null ? -1 : b.score) - (a.score == null ? -1 : a.score) || rentOf(a) - rentOf(b); },
+  rent: function (a, b) { return rentOf(a) - rentOf(b); },
   newest: function (a, b) { return a.first_seen < b.first_seen ? 1 : a.first_seen > b.first_seen ? -1 : 0; },
   commute: function (a, b) { return (a.commute == null ? 1e9 : a.commute) - (b.commute == null ? 1e9 : b.commute); }
 };
@@ -242,6 +251,7 @@ function chips(l) {
   if (l.verdict_changed) out.push('<span class="chip new">Verdict changed</span>');
   if (l.off_market) out.push('<span class="chip">Off market</span>');
   if (l.status !== "active" && l.status !== "delisted") out.push('<span class="chip">' + esc(l.status) + "</span>");
+  if (overdue(l) && l.stage === "done") out.push('<span class="chip warn">Due a re-check</span>');
   if (l.stage === "needs_enrich" && l.verdict !== "PENDING") out.push('<span class="chip warn">Re-check queued</span>');
   if (l.stage === "needs_score" && l.verdict !== "PENDING") out.push('<span class="chip warn">Re-score queued</span>');
   var risk = l.flags.filter(function (f) { return f.kind === "risk"; }).length;
@@ -253,6 +263,14 @@ function chips(l) {
   return out.length ? '<div class="chips">' + out.join("") + "</div>" : "";
 }
 
+function localDay(iso) { var d = new Date(iso); return d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2) + "-" + ("0" + d.getDate()).slice(-2); }
+function daysSince(iso) { return Math.max(0, Math.floor((Date.now() - Date.parse(iso)) / 864e5)); }
+function ago(iso) { var d = daysSince(iso); return d === 0 ? "today" : d === 1 ? "yesterday" : d + " days ago"; }
+function overdue(l) {
+  var limit = DATA.recheck_days[l.verdict];
+  return limit != null && !l.off_market && l.status !== "rejected" && daysSince(l.checked_at) > limit;
+}
+
 function metaLine(l) {
   var bits = [];
   if (l.neighborhood) bits.push(esc(l.neighborhood));
@@ -261,6 +279,7 @@ function metaLine(l) {
   if (l.sqft != null) bits.push(Math.round(l.sqft).toLocaleString("en-US") + " sq ft");
   if (l.commute != null) bits.push(num(l.commute) + " min commute");
   if (l.available) bits.push("avail. " + esc(l.available));
+  if (DATA.recheck_days[l.verdict] != null && !l.off_market) bits.push("seen live " + ago(l.checked_at));
   return bits.join(" &middot; ");
 }
 
@@ -269,11 +288,14 @@ function evidenceHtml(l, c) {
     var name = "<b>" + esc(e.type.replace(/_/g, " ")) + ":</b> ", note = e.note ? " &mdash; " + esc(e.note) : "", what, minis = "";
     if (e.type === "text") what = quoteLink(l, e.quote);
     else if (e.type === "photos" && e.photos) {
+      // The pictures as they were when scored, even if the listing's gallery has changed since.
       what = e.photos.join(", ");
-      minis = '<div class="minis">' + e.photos.map(function (n) { return shot(l, n - 1, true); }).join("") + "</div>";
-    } else if (e.type === "floor_plan" && l.floor_plans.length) {
+      minis = '<div class="minis">' + strip(l.title, (e.urls || []).map(function (u, i) {
+        return {url: u, tag: String(e.photos[i]), label: "Photo " + e.photos[i] + ", cited for " + c.label};
+      }), true) + "</div>";
+    } else if (e.type === "floor_plan" && e.urls) {
       what = esc(e.ref || "saved plan");
-      minis = '<div class="minis">' + shot(l, l.photos.length, true) + "</div>";
+      minis = '<div class="minis">' + strip(l.title, e.urls.map(function (u) { return {url: u, tag: "plan", label: "Floor plan, cited for " + c.label}; }), true) + "</div>";
     } else what = link(e.ref, safeUrl(e.ref) ? "open the view" : e.ref);
     return "<p>" + name + what + note + "</p>" + minis;
   });
@@ -336,7 +358,7 @@ function sourcesHtml(l) {
     return "<tr><td>" + link(s.url, siteName(s.source)) + "</td><td>" + money(s.rent) + "</td><td class='small'>" + (s.active ? "live" : "gone") + "</td></tr>";
   }).join("");
   var hist = l.price_history.length > 1 ? "<details><summary>Price history</summary><table>" + l.price_history.map(function (p) {
-    return "<tr><td>" + esc(p.date) + "</td><td>" + esc(siteName(p.source)) + "</td><td>" + money(p.rent) + "</td></tr>";
+    return "<tr><td>" + esc(p.date) + "</td><td>" + esc(siteName(p.source)) + " " + (p.where === "page" ? "listing page" : "search results") + "</td><td>" + money(p.rent) + "</td></tr>";
   }).join("") + "</table></details>" : "";
   return "<section><h3>Where it is listed</h3><table>" + rows + "</table>" + hist +
     '<p class="small">First seen ' + esc(l.first_seen) + ", last seen " + esc(l.last_seen) + ".</p></section>";
@@ -347,7 +369,7 @@ function factsHtml(l) {
   return "<details><summary>Every fact recorded, and where it came from</summary><table><tr><th>Fact</th><th>Value</th><th>Seen</th></tr>" +
     l.facts.map(function (f) {
       return "<tr><td>" + esc(f.name) + "</td><td>" + (f.value == null ? '<span class="st unknown">unknown</span>' : esc(f.value)) +
-        '</td><td class="small">' + esc(f.where || "") + (f.quote ? " " + quoteLink(l, f.quote) : "") + "</td></tr>";
+        '</td><td class="small">' + (safeUrl(f.url) ? link(f.url, f.where || "open") : esc(f.where || "")) + (f.quote ? " " + quoteLink(l, f.quote) : "") + "</td></tr>";
     }).join("") + "</table></details>";
 }
 
@@ -373,7 +395,7 @@ function linkRow(l) {
 function gallery(l) {
   var all = images(l);
   if (!all.length) return l.photos_unavailable_reason ? '<p class="small">No photos saved: ' + esc(l.photos_unavailable_reason) + "</p>" : "";
-  return '<div class="gallery">' + all.map(function (_, i) { return shot(l, i, false); }).join("") + "</div>";
+  return '<div class="gallery">' + strip(l.title, all, false) + "</div>";
 }
 
 function cardHtml(l) {
@@ -388,11 +410,13 @@ function cardHtml(l) {
     '<div><div class="title">' + esc(l.title) + '</div><div class="meta">' + metaLine(l) + "</div>" +
     '<div class="reason">' + esc(l.reason || (l.stage === "needs_enrich" ? "Waiting to be opened" : "Waiting to be scored")) + "</div>" +
     (l.headline ? '<div class="headline">' + esc(l.headline) + "</div>" : "") + chips(l) + "</div>" +
-    '<div class="rent"><b>' + money(l.rent_net) + "</b><span>" + (concession ? "net &middot; " + money(l.rent_gross) + " gross" : "per month") + "</span></div>" +
+    '<div class="rent"><b>' + (rentOf(l) === 1e9 ? "?" : money(rentOf(l))) + "</b><span>" + (concession ? "net &middot; " + money(l.rent_gross) + " gross" :
+      l.rent_net != null ? "per month" : l.rent_gross != null ? "gross; net unknown" : "advertised") + "</span></div>" +
     "</button>" +
     '<div class="body">' + linkRow(l) + gallery(l) + '<div class="cols"><div>' + scorecard(l) + questions(l) + '</div><div>' + flagList(l) + gateTable(l) + money3(l) + sourcesHtml(l) +
     (l.verdict === "TOUR" || l.verdict === "WATCH" || l.feedback.length ? tellClaude(l) : "") + "</div></div>" +
-    (l.address_unknown_reason ? '<p class="small">Address not known: ' + esc(l.address_unknown_reason) + "</p>" : "") +
+    (l.partial ? '<p class="small">Reading stopped early: what was recorded already ruled this listing out.</p>' : "") +
+    (l.address_unknown_reason && !l.partial ? '<p class="small">Address not known: ' + esc(l.address_unknown_reason) + "</p>" : "") +
     factsHtml(l) + (l.description ? '<details><summary>Listing text as saved</summary><div class="desc">' + esc(l.description) + "</div></details>" : "") +
     "</div></article>";
 }
@@ -417,6 +441,8 @@ function renderTabs() {
 }
 
 function render() {
+  SETS = [];
+  hidePhoto();
   renderTabs();
   var rows = DATA.listings.filter(function (l) { return passesFilters(l); }).sort(sorters[state.sort] || sorters.score);
   document.getElementById("list").innerHTML = rows.length ? rows.map(cardHtml).join("") :
@@ -429,7 +455,7 @@ function header() {
   var who = (DATA.name ? esc(DATA.name) + " &middot; " : "") + esc(DATA.city);
   if (!run) { document.getElementById("sub").innerHTML = who + " &middot; no runs yet"; return; }
   var c = run.counts;
-  document.getElementById("sub").innerHTML = who + " &middot; last run " + esc(run.finished_at.slice(0, 10)) + ": " + c.cards + " seen, " + c["new"] +
+  document.getElementById("sub").innerHTML = who + " &middot; last run " + esc(localDay(run.finished_at)) + ": " + c.cards + " seen, " + c["new"] +
     " new, " + c.price_changed + " price change" + (c.price_changed === 1 ? "" : "s") + ", " + run.evaluated + " opened, " + run.scored + " scored";
   var notes = [];
   Object.keys(run.blocked || {}).forEach(function (s) {
@@ -437,25 +463,31 @@ function header() {
   });
   (run.notes || []).forEach(function (n) { notes.push(esc(n)); });
   if (run.left_to_open) notes.push(run.left_to_open + " listing" + (run.left_to_open === 1 ? "" : "s") + " waiting to be opened next run.");
+  var cover = Object.keys(DATA.coverage || {}).map(function (s) {
+    var c = DATA.coverage[s];
+    return esc(siteName(s)) + ": " + (c.full_sweep_in_progress ? "full sweep in progress" + (c.last_full_sweep ? ", last finished " + ago(c.last_full_sweep) : "")
+      : c.last_full_sweep ? "every page read " + ago(c.last_full_sweep) : "not fully read yet");
+  });
+  var due = DATA.listings.filter(overdue).length;
+  var ask = "Read agent/prompts/refresh.txt in the rental scout folder and do what it says.";
+  document.getElementById("fresh-line").innerHTML = cover.join(" &middot; ") +
+    ' &middot; <button type="button" class="linkish" data-copy="' + esc(ask) + '">' + (due ? due + " due a re-check: " : "") + "copy the refresh request for Claude</button>";
   document.getElementById("notices").innerHTML = notes.map(function (n) { return '<div class="notice">' + n + "</div>"; }).join("");
 }
 
 var viewer = null;
-function showPhoto(id, index) {
-  var l = DATA.listings.filter(function (x) { return x.id === id; })[0];
-  if (!l) return;
-  var all = images(l);
-  if (!all.length) return;
-  viewer = {listing: l, index: (index + all.length) % all.length};
-  var item = all[viewer.index];
-  document.getElementById("lb-img").src = imgUrl(item.url) || "";
+function showPhoto(set, index) {
+  var group = SETS[set];
+  if (!group) return;
+  viewer = {set: set, index: (index + group.items.length) % group.items.length};
+  var item = group.items[viewer.index];
+  document.getElementById("lb-img").src = item.url;
   document.getElementById("lb-img").alt = item.label;
-  document.getElementById("lb-cap").innerHTML = esc(l.title) + " &middot; " + esc(item.label) +
-    (viewer.index < l.photos.length ? " (" + (viewer.index + 1) + " of " + l.photos.length + ")" : "") +
+  document.getElementById("lb-cap").innerHTML = esc(group.title) + " &middot; " + esc(item.label) +
     (safeUrl(item.url) ? " &middot; " + link(item.url, "open original") : "");
   document.getElementById("lightbox").classList.add("on");
 }
-function stepPhoto(by) { if (viewer) showPhoto(viewer.listing.id, viewer.index + by); }
+function stepPhoto(by) { if (viewer) showPhoto(viewer.set, viewer.index + by); }
 function hidePhoto() { viewer = null; document.getElementById("lightbox").classList.remove("on"); document.getElementById("lb-img").removeAttribute("src"); }
 
 // report.html#<listing id> opens that scorecard, whatever tab or filters were last used.
@@ -497,15 +529,14 @@ function init() {
     var b = e.target.closest("[data-tab]");
     if (b) { state.tab = b.getAttribute("data-tab"); render(); }
   });
-  document.getElementById("list").addEventListener("click", function (e) {
+  document.addEventListener("click", function (e) {
     var copy = e.target.closest("[data-copy]");
-    if (copy) {
-      var text = copy.getAttribute("data-copy");
-      if (navigator.clipboard) navigator.clipboard.writeText(text).then(function () { copy.textContent = "Copied"; }, function () {});
-      return;
-    }
+    if (copy && navigator.clipboard) navigator.clipboard.writeText(copy.getAttribute("data-copy")).then(function () { copy.textContent = "Copied"; }, function () {});
+  });
+  document.getElementById("list").addEventListener("click", function (e) {
+    if (e.target.closest("[data-copy]")) return;
     var pic = e.target.closest("[data-shot]");
-    if (pic) { showPhoto(pic.closest(".card").getAttribute("data-id"), Number(pic.getAttribute("data-shot"))); return; }
+    if (pic) { showPhoto(Number(pic.getAttribute("data-set")), Number(pic.getAttribute("data-shot"))); return; }
     var head = e.target.closest(".head");
     if (!head) return;
     var card = head.parentNode, id = card.getAttribute("data-id");
@@ -527,7 +558,11 @@ function init() {
   window.addEventListener("hashchange", followHash);
   document.getElementById("foot").innerHTML = "Generated " + esc(DATA.generated_at.replace("T", " ").replace("Z", " UTC")) + " from data/store.json. TOUR is " +
     DATA.thresholds.tour + "+, WATCH is " + DATA.thresholds.watch + "+. The scout never contacts anyone: tours and applications are yours to start.";
-  if (!followHash()) render();
+  if (followHash()) return;
+  // Do not greet the user with an empty tab when there is something to see on the next one.
+  var count = function (tab) { return DATA.listings.filter(function (l) { return passesFilters(l, true) && (tab === "ALL" || tabOf(l) === tab); }).length; };
+  if (!count(state.tab)) state.tab = ["TOUR", "WATCH", "ALL"].filter(count)[0] || state.tab;
+  render();
 }
 init();
 </script>

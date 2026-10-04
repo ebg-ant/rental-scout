@@ -11,8 +11,8 @@ In the Claude desktop app, create a scheduled task pointed at this folder and pa
 prompt file. The prompts are deliberately short: criteria live in `scout.config.yaml` and the method
 lives in `agent/`, so there is nothing in them to keep up to date.
 
-The daily run already re-opens any shortlisted listing that no sweep has seen for
-`limits.recheck_after_days`, so the separate refresh is a convenience, not a requirement.
+The daily run already re-opens any TOUR or WATCH it has not seen for a few days (`refresh` in the config),
+so the separate refresh is a convenience, not a requirement.
 
 If you use the Claude Code command line instead, `scripts/run.sh` and `scripts/refresh.sh` do the same
 things and can be put in cron or launchd.

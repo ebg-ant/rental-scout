@@ -14,6 +14,8 @@ or submit anything, never enter credentials, never invent a fact, stop on any bl
 - Python 3.8+, standard library only. The user installs nothing, so add no dependencies. PyYAML is
   vendored in `scout/_vendor/yaml`; do not edit it.
 - Tests: `python3 -m unittest discover -s tests -t .` Demo report: `python3 -m tests.demo`.
+  After touching `pipeline.py` or `sweeps.py`, also run `SCOUT_FUZZ_SEEDS=20 python3 -m unittest tests.test_fuzz`:
+  a made-up market churns for weeks and the things that must always hold are checked.
 - `docs/DESIGN.md` has the architecture, the record shape and the reasoning behind the rules.
 
 Lines that must hold:

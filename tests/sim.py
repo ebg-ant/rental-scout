@@ -44,9 +44,9 @@ class ScriptedAgent(object):
         with opened(self.data_dir) as store:
             return function(self.cfg, store, *args)
 
-    def run(self, day, stop_after=None):
+    def run(self, day, stop_after=None, **start_options):
         """Play one run from a fixture day. `stop_after` simulates a dropped session."""
-        started = self.call(pipeline.start)
+        started = self.call(lambda cfg, store: pipeline.start(cfg, store, **start_options))
         steps = 0
         while True:
             if stop_after is not None and steps >= stop_after:
@@ -60,9 +60,7 @@ class ScriptedAgent(object):
                 if task["source"] in day.get("blocks", {}):
                     self.call(pipeline.blocked, task["source"], day["blocks"][task["source"]])
                     continue
-                payload = dict(day.get("sweeps", {}).get(task["sweep"], {"cards": []}))
-                payload["sweep"] = task["sweep"]
-                self.call(pipeline.ingest, payload)
+                self.call(pipeline.ingest, self.results_page(day, task))
             elif kind == "enrich":
                 self.call(pipeline.enrich, day["pages"][task["id"]])
             elif kind == "score":
@@ -71,6 +69,17 @@ class ScriptedAgent(object):
                 return {"started": started, "finished": self.call(pipeline.finish), "why": task["why"]}
             else:
                 raise AssertionError("unexpected task %r" % task)
+
+    @staticmethod
+    def results_page(day, task):
+        """One page of a fixture search. A search is {"cards": [...]} or {"pages": [[...], [...]]}."""
+        search = day.get("sweeps", {}).get(task["sweep"], {"cards": []})
+        pages = search.get("pages") or [search["cards"]]
+        payload = {"sweep": task["sweep"], "page": task["page"], "cards": pages[task["page"] - 1],
+                   "last_page": task["page"] == len(pages)}
+        if "total_results" in search:
+            payload["total_results"] = search["total_results"]
+        return payload
 
     def tasks(self, kind):
         return [task for task in self.log if task["task"] == kind]

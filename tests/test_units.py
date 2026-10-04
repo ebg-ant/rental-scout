@@ -3,7 +3,7 @@
 import unittest
 from urllib.parse import parse_qs, unquote, urlsplit
 
-from scout import address, derive, flags, gate, prefilter, rubric, sweeps, verdict
+from scout import address, derive, flags, gate, pipeline, prefilter, rubric, sweeps, verdict
 from tests.helpers import make_config, rule
 
 ALIASES = {"avenue of the americas": "6th avenue"}
@@ -49,7 +49,12 @@ class AddressTests(unittest.TestCase):
 
 class RentTests(unittest.TestCase):
     def test_no_concession(self):
-        self.assertEqual(derive.rents({"rent_advertised": 4000})[:2], (4000, 4000))
+        self.assertEqual(derive.rents({"rent_advertised": 4000, "free_months": 0})[:2], (4000, 4000))
+
+    def test_unknown_concession_leaves_the_other_figure_unknown(self):
+        self.assertEqual(derive.rents({"rent_advertised": 3700, "rent_advertised_is": "net_effective"})[:2], (None, 3700))
+        self.assertEqual(derive.rents({"rent_advertised": 3700, "rent_advertised_is": "gross"})[:2], (3700, None))
+        self.assertEqual(derive.rents({"rent_advertised": 3700})[:2], (None, None))
 
     def test_gross_advertised_with_free_month(self):
         gross, net, _ = derive.rents({"rent_advertised": 4300, "rent_advertised_is": "gross",
@@ -71,9 +76,12 @@ class RentTests(unittest.TestCase):
 
     def test_broker_fee_is_spread_over_the_lease(self):
         cfg = make_config()
-        out = derive.derive({"rent_advertised": 3000, "tenant_pays_broker_fee": True, "broker_fee_amount": 3600,
-                             "lease_term_months": 12}, None, cfg)
-        self.assertEqual(out["monthly_all_in"], 3300)
+        base = {"rent_advertised": 3000, "free_months": 0, "lease_term_months": 12}
+        all_in = lambda **more: derive.derive(dict(base, **more), None, cfg)["monthly_all_in"]
+        self.assertEqual(all_in(tenant_pays_broker_fee=True, broker_fee_amount=3600), 3300)
+        self.assertEqual(all_in(tenant_pays_broker_fee=False), 3000)
+        self.assertIsNone(all_in())                                  # who pays is unknown
+        self.assertIsNone(all_in(tenant_pays_broker_fee=True))       # how much is unknown
 
     def test_target_area_uses_aliases_and_zips(self):
         areas = {"neighborhoods": ["East Village"], "zips": [11211], "aliases": {"East Village": ["Alphabet City"]}}
@@ -112,7 +120,7 @@ class PrefilterTests(unittest.TestCase):
         self.assertIn("fully furnished", result["excerpt"])
 
 
-GOOD = {"rent_advertised": 3900, "beds": 1, "neighborhood": "East Village", "cats": "allowed", "lease_term_months": 12,
+GOOD = {"rent_advertised": 3900, "free_months": 0, "beds": 1, "neighborhood": "East Village", "cats": "allowed", "lease_term_months": 12,
         "furnished": False, "sublet": False, "room_share": False, "floor": 2, "elevator": False,
         "laundry": "in_building", "commute_minutes": 30, "available_date": "2026-12-01"}
 
@@ -174,12 +182,20 @@ class GateTests(unittest.TestCase):
         self.assertEqual(self.row(result, "rent")["actual"], "$3,969")
 
     def test_card_check_only_rejects_clear_trusted_misses(self):
-        check = lambda **card: gate.card_check(self.cfg, derive.values_for(card, None, self.cfg))
-        self.assertIsNone(check(rent_advertised=4500, beds=1))       # within the 15% margin
-        self.assertEqual(check(rent_advertised=4700, beds=1)["rule"], "rent")
-        self.assertEqual(check(rent_advertised=3000, beds=0)["rule"], "beds")
-        self.assertIsNone(check(rent_advertised=3000))                # missing is not a miss
-        self.assertIsNone(check(rent_advertised=3000, beds=1, neighborhood="Harlem"))  # not trust_card
+        check = lambda **card: gate.card_check(self.cfg, pipeline._card_values(self.cfg, {"card": card, "address_key": None}))
+        self.assertIsNone(check(rent=4500, beds=1))       # within the 15% margin
+        self.assertEqual(check(rent=4700, beds=1)["rule"], "rent")
+        self.assertEqual(check(rent=3000, beds=0)["rule"], "beds")
+        self.assertIsNone(check(rent=3000))                # missing is not a miss
+        self.assertIsNone(check(rent=3000, beds=1, neighborhood="Harlem"))  # not trust_card
+
+    def test_rules_can_be_left_out_by_the_facts_they_need(self):
+        facts = dict(GOOD, rent_advertised=9000)
+        values = derive.values_for(facts, None, self.cfg)
+        self.assertEqual(gate.run(self.cfg, values)["result"], "fail")
+        without = gate.run(self.cfg, values, ignoring=["rent_advertised"])
+        self.assertEqual(without["result"], "pass")
+        self.assertNotIn("rent", [row["id"] for row in without["rules"]])
 
 
 def record(facts, **extra):
@@ -194,6 +210,7 @@ class FlagTests(unittest.TestCase):
 
     def ids(self, facts, cfg=None, comps=lambda beds: (None, 0), key={"street": "1 a st"}, **extra):
         cfg = cfg or self.cfg
+        facts = dict({"free_months": 0}, **facts)
         rec = record(facts, **extra)
         return dict((f["id"], f) for f in flags.run(cfg, rec, derive.values_for(facts, key, cfg), comps))
 
@@ -228,6 +245,20 @@ class FlagTests(unittest.TestCase):
             self.assertIn(flag_id, found)
         self.assertIn("FARE Act", found["tenant_broker_fee"]["message"])
         self.assertIn("$172,000", found["income_short"]["message"])
+
+    def test_unclear_rent_is_said_out_loud(self):
+        self.assertIn("rent_unclear", self.ids({"rent_advertised": 3000, "free_months": None}))
+
+    def test_available_before_you_want_to_move(self):
+        self.assertIn("14 days before", self.ids({"rent_advertised": 3000, "available_date": "2026-11-01"})["available_early"]["message"])
+        self.assertNotIn("available_early", self.ids({"rent_advertised": 3000, "available_date": "2026-11-20"}))
+
+    def test_long_listed(self):
+        import os
+        os.environ["SCOUT_NOW"] = "2026-10-05T13:00:00"
+        self.addCleanup(os.environ.pop, "SCOUT_NOW", None)
+        self.assertIn("Listed 65 days ago", self.ids({"rent_advertised": 3000, "listed_date": "2026-08-01"})["long_listed"]["message"])
+        self.assertNotIn("long_listed", self.ids({"rent_advertised": 3000, "listed_date": "2026-09-20"}))
 
     def test_info_flags_and_disable(self):
         facts = {"rent_advertised": 3000, "level": "garden", "flood_zone": "high", "noise_sources": ["elevated J/M/Z"],
@@ -340,40 +371,61 @@ class VerdictTests(unittest.TestCase):
 
 
 class SweepTests(unittest.TestCase):
-    def test_streeteasy_band(self):
+    def test_streeteasy_band_is_newest_first(self):
         url = sweeps.band_url("streeteasy", "https://streeteasy.com/for-rent/nyc/price:2000-4000%7Carea:102,119%7Cbeds:1"
-                                            "?sort_by=listed_desc&page=3", 3000, 3500)
+                                            "?sort_by=price_asc&page=3", 3000, 3500)
         self.assertEqual(unquote(urlsplit(url).path), "/for-rent/nyc/price:3000-3500|area:102,119|beds:1")
         self.assertEqual(urlsplit(url).query, "sort_by=listed_desc")
-        self.assertTrue(sweeps.band_url("streeteasy", "https://streeteasy.com/for-rent/east-village", 1, 2)
-                        .endswith("/for-rent/east-village/price:1-2"))
+        kept = sweeps.band_url("streeteasy", "https://streeteasy.com/for-rent/nyc/beds%3E=1", 3000, 3500)
+        self.assertIn("/price:3000-3500%7Cbeds%3E=1?", kept)      # the user's own filters come back as they were written
+        self.assertIn("/for-rent/east-village/price:1-2?", sweeps.band_url("streeteasy", "https://streeteasy.com/for-rent/east-village", 1, 2))
         self.assertIsNone(sweeps.band_url("streeteasy", "https://streeteasy.com/saved_search/123", 1, 2))
 
-    def test_zillow_band(self):
+    def test_zillow_band_is_newest_first(self):
         base = ("https://www.zillow.com/new-york-ny/rentals/?searchQueryState=%7B%22pagination%22%3A%7B%22currentPage"
                 "%22%3A2%7D%2C%22filterState%22%3A%7B%22fr%22%3A%7B%22value%22%3Atrue%7D%7D%7D")
         state = parse_qs(urlsplit(sweeps.band_url("zillow", base, 3000, 3500)).query)["searchQueryState"][0]
         self.assertIn('"mp":{"min":3000,"max":3500}', state)
+        self.assertIn('"sort":{"value":"days"}', state)
         self.assertNotIn("pagination", state)
         self.assertIsNone(sweeps.band_url("zillow", "https://www.zillow.com/new-york-ny/rentals/", 1, 2))
 
     def test_craigslist_plan(self):
-        cfg = make_config()
-        mine = [s for s in sweeps.plan(cfg) if s["source"] == "craigslist"]
-        self.assertEqual(len(mine), 3)
+        mine = sweeps.plan(make_config(), "craigslist", sweeps.FULL)
+        self.assertEqual([s["key"] for s in mine], ["craigslist:%d:2800-4400" % n for n in range(3)])
         url = sweeps.band_url("craigslist", mine[1]["base_url"], mine[1]["min"], mine[1]["max"])
         self.assertEqual(url, "https://newyork.craigslist.org/search/brk/apa?sort=date&min_price=2800&max_price=4400")
 
-    def test_split_covers_the_band_without_overlap(self):
-        sweep = sweeps.plan(make_config())[0]
+    def test_incremental_and_inbox_plans(self):
+        cfg = make_config(lambda raw: raw["search"]["sources"]["email_alerts"].update(enabled=True))
+        self.assertEqual([s["key"] for s in sweeps.plan(cfg, "streeteasy", sweeps.INCREMENTAL)], ["streeteasy:0:new"])
+        self.assertEqual([s["key"] for s in sweeps.plan(cfg, "email_alerts", sweeps.FULL)], ["email_alerts:0:inbox"])
+
+    def test_later_pages(self):
+        first = sweeps.band_url("streeteasy", "https://streeteasy.com/for-rent/nyc/beds:1", 1, 2)
+        self.assertEqual(sweeps.page_url("streeteasy", first, 1), first)
+        self.assertTrue(sweeps.page_url("streeteasy", first, 3).endswith("&page=3"))
+        zillow = sweeps.band_url("zillow", "https://www.zillow.com/x/?searchQueryState=%7B%7D", 1, 2)
+        self.assertIn("currentPage%22%3A4", sweeps.page_url("zillow", zillow, 4))
+        self.assertIsNone(sweeps.page_url("craigslist", "https://newyork.craigslist.org/search/brk/apa", 2))
+
+    def test_split_covers_the_band_without_overlap_or_slivers(self):
+        sweep = sweeps.plan(make_config(), "streeteasy", sweeps.FULL)[0]
         low, high = sweeps.split(sweep, 100)
         self.assertEqual((low["min"], low["max"], high["min"], high["max"]), (2800, 3600, 3601, 4400))
-        self.assertIsNone(sweeps.split(dict(sweep, min=3000, max=3050), 100))
+        self.assertIsNone(sweeps.split(dict(sweep, min=3000, max=3150), 100))     # halves would be under 100 wide
+        self.assertIsNotNone(sweeps.split(dict(sweep, min=3000, max=3199), 100))
 
-    def test_band_width_pre_splits(self):
+    def test_band_width_pre_splits_full_sweeps_only(self):
         cfg = make_config(lambda raw: raw["search"]["sources"]["streeteasy"].update(band_width=800))
-        bands = [(s["min"], s["max"]) for s in sweeps.plan(cfg) if s["source"] == "streeteasy"]
-        self.assertEqual(bands, [(2800, 3599), (3600, 4399), (4400, 4400)])
+        self.assertEqual([(s["min"], s["max"]) for s in sweeps.plan(cfg, "streeteasy", sweeps.FULL)],
+                         [(2800, 3599), (3600, 4399), (4400, 4400)])
+        self.assertEqual(len(sweeps.plan(cfg, "streeteasy", sweeps.INCREMENTAL)), 1)
+
+    def test_search_hash_follows_what_a_sweep_would_cover(self):
+        before = sweeps.search_hash(make_config(), "streeteasy")
+        self.assertEqual(before, sweeps.search_hash(make_config(lambda raw: raw["limits"].update(throttle_seconds=30)), "streeteasy"))
+        self.assertNotEqual(before, sweeps.search_hash(make_config(lambda raw: raw["search"].update(price_max=5000)), "streeteasy"))
 
 
 if __name__ == "__main__":

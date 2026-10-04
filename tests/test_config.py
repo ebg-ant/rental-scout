@@ -24,7 +24,7 @@ class ConfigTests(unittest.TestCase):
         with open(TEMPLATE, encoding="utf-8") as handle:
             template = yaml.safe_load(handle)
         example = raw_example()
-        for section in ("rubric", "verdicts", "risk", "costs", "limits", "capture", "calibration"):
+        for section in ("rubric", "verdicts", "risk", "costs", "limits", "refresh", "capture", "calibration"):
             self.assertEqual(template[section], example[section], section)
         self.assertEqual([r["id"] for r in template["gate"]["rules"]], [r["id"] for r in example["gate"]["rules"]])
         self.assertEqual([r["id"] for r in template["prefilters"]], [r["id"] for r in example["prefilters"]])
@@ -86,6 +86,45 @@ class ConfigTests(unittest.TestCase):
         raw["search"]["price_max"] = 3500
         _, warnings = config.validate(raw)
         self.assertTrue(any("will miss" in w for w in warnings), warnings)
+
+    def test_odd_shapes_are_plain_errors_not_crashes(self):
+        shapes = [
+            lambda raw: raw["rubric"][0].update(evidence_required=None),     # allowed: means none
+            lambda raw: raw.update(capture=["baths"]),
+            lambda raw: raw["search"].update(areas=["East Village"]),
+            lambda raw: raw["search"].update(commute_anchor="Grand Central"),
+            lambda raw: rule(raw, "beds").update(id=7),                      # allowed: becomes "7"
+            lambda raw: raw["rubric"][0].update(id=1),                       # allowed: becomes "1"
+            lambda raw: raw["search"]["sources"].update(zillow="yes"),
+            lambda raw: raw.update(gate=[1, 2]),
+            lambda raw: raw.update(rubric={"light": 1}),
+            lambda raw: raw["gate"].update(rules=[None, 3, "x"]),
+            lambda raw: raw.update(verdicts={"tour": 75, "watch": 60}),
+            lambda raw: raw.update(prefilters=[{"id": "x", "reason": "y", "reject_if_any": "furnished"}]),
+            lambda raw: raw["search"].update(helper_links="none"),
+        ]
+        for index, change in enumerate(shapes):
+            for message in errors_from(change):       # must raise ScoutError or nothing, never anything else
+                self.assertIsInstance(message, str, index)
+
+    def test_zips_that_yaml_would_mangle_are_caught(self):
+        parsed = yaml.safe_load("zips: [07030, 10003]")["zips"]
+        self.assertEqual(parsed[0], 3608)             # the trap: an unquoted leading zero is octal
+        errors = errors_from(lambda raw: raw["search"]["areas"].update(zips=parsed))
+        self.assertTrue(any("quotes around zips" in e for e in errors), errors)
+        cfg = make_config(lambda raw: raw["search"]["areas"].update(zips=["07030", 10003]))
+        self.assertEqual(cfg.areas["zips"], ["07030", "10003"])
+
+    def test_source_numbers_are_checked(self):
+        self.assertTrue(errors_from(lambda raw: raw["search"]["sources"]["streeteasy"].update(band_width=-100)))
+        cfg = make_config(lambda raw: raw["search"]["sources"]["craigslist"].update(throttle_seconds=None))
+        self.assertIsNone(cfg.sources["craigslist"]["throttle_seconds"])     # means: use the default
+
+    def test_refresh_defaults_and_typos(self):
+        cfg = make_config(lambda raw: raw.pop("refresh"))
+        self.assertEqual(cfg.refresh["full_sweep_every_days"], 7)
+        errors = errors_from(lambda raw: raw["refresh"].update(recheck_tours_after_days=1))
+        self.assertTrue(any("is not a setting" in e for e in errors), errors)
 
     def test_custom_field_can_be_gated_on(self):
         def change(raw):

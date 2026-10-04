@@ -13,6 +13,10 @@ MAPS = "https://www.google.com/maps/search/?api=1&query=demo"
 PHOTO = "https://photos.example.com/demo/%s/%s.jpg"
 
 
+LOOKUPS = {"commute_minutes": "Google Maps transit directions", "flood_zone": "FEMA flood map for the address",
+           "noise_sources": "Google Maps satellite and Street View, one block around"}
+
+
 def page(rec_id, address, text, facts, unknown=None, quotes=None, **extra):
     """An enrich payload. Every fact gets a provenance line, as the real agent must give."""
     base = {
@@ -25,10 +29,13 @@ def page(rec_id, address, text, facts, unknown=None, quotes=None, **extra):
     for name in list(base):
         if name in unknown or base[name] is None:
             base.pop(name)
-    for name in ("sqft", "rent_stabilized", "income_multiple_required"):
+    for name in ("sqft", "rent_stabilized", "income_multiple_required", "listed_date"):
         if name not in base:
             unknown.setdefault(name, "not stated on the page")
     provenance = dict((name, {"where": "listing page"}) for name in base)
+    for name, where in LOOKUPS.items():
+        if name in base:
+            provenance[name] = {"where": where, "url": MAPS}
     for name, quote in (quotes or {}).items():
         provenance[name] = {"where": "description", "quote": quote}
     payload = {"id": rec_id, "raw_text": text, "facts": base, "unknown": unknown, "provenance": provenance,
@@ -44,7 +51,7 @@ def with_photos(day):
     """Give every search card the first photo of its listing, as real cards have."""
     from scout.pipeline import _record_id, derive_source_id
     for sweep in day["sweeps"].values():
-        for card in sweep["cards"]:
+        for card in [c for page in sweep.get("pages") or [sweep["cards"]] for c in page]:
             source = "streeteasy" if "streeteasy" in card["url"] else "zillow" if "zillow" in card["url"] else "craigslist"
             card.setdefault("first_photo", PHOTO % (_record_id(source, derive_source_id(card["url"])), 1))
     return day
@@ -83,7 +90,7 @@ TEXT_7TH = ("Sun-filled one bedroom on a tree-lined East Village block. South-fa
             "Available December 1. No fee.")
 TEXT_BERRY = ("Modern one bedroom in a full-service Williamsburg elevator building. One month free on a 13-month lease. "
               "Gross rent $4,300. Washer and dryer in unit, dishwasher, central air. Private balcony. "
-              "Doorman and package room. West-facing over Berry Street. Pets upon approval.")
+              "Doorman and package room. West-facing over Berry Street. Ask the leasing office about our pet policy.")
 TEXT_LIC = ("High-floor one bedroom in Long Island City with skyline views. Elevator, doorman, gym. "
             "Washer dryer in unit. Pets considered case by case. Available now.")
 TEXT_FRANKLIN = ("Charming Greenpoint one bedroom, second floor rear, facing quiet gardens to the east. "
@@ -103,7 +110,7 @@ TEXT_NOADDR = ("Sunny Williamsburg one bedroom near the L. Top floor of a three 
 
 DAY1 = {
     "sweeps": {
-        "streeteasy:0:2800-4400": {"total_results": 7, "pages_read": 1, "cards": [
+        "streeteasy:0:2800-4400": {"total_results": 7, "cards": [
             {"url": SE % "212-east-7-street/4b", "title": "212 East 7th Street #4B", "address": "212 East 7th Street #4B",
              "rent": 3950, "beds": 1, "baths": 1, "neighborhood": "East Village", "snippet": "No fee. Laundry in building."},
             {"url": SE % "88-berry-street/6c", "title": "88 Berry Street #6C", "address": "88 Berry Street #6C",
@@ -119,26 +126,27 @@ DAY1 = {
             {"url": SE % "305-broome-street/1a", "title": "305 Broome Street #1A", "address": "305 Broome Street #1A",
              "rent": 2900, "beds": 1, "baths": 1, "neighborhood": "Lower East Side"},
         ]},
-        # Zillow hits its result cap, so the scout splits the band in two and sweeps each half.
-        "zillow:0:2800-4400": {"capped": True, "total_results": 800, "pages_read": 6, "cards": [
+        # Zillow reports far more results than it will page through, so the scout splits the price
+        # band in two and sweeps each half.
+        "zillow:0:2800-4400": {"total_results": 800, "pages": [[
             {"url": ZL % "900001", "title": "212 E 7th St APT 4B, New York, NY 10009",
              "address": "212 E 7th St APT 4B, New York, NY 10009", "rent": 4000, "beds": 1, "baths": 1},
-        ]},
-        "zillow:0:2800-3600": {"pages_read": 2, "cards": [
+        ], []]},
+        "zillow:0:2800-3600": {"cards": [
             {"url": ZL % "900002", "title": "23-05 30th Ave #3C, Astoria, NY 11102",
              "address": "23-05 30th Ave #3C, Astoria, NY 11102", "rent": 3100, "beds": 1, "baths": 1},
         ]},
-        "zillow:0:3601-4400": {"pages_read": 2, "cards": [
+        "zillow:0:3601-4400": {"cards": [
             {"url": ZL % "900001", "title": "212 E 7th St APT 4B, New York, NY 10009",
              "address": "212 E 7th St APT 4B, New York, NY 10009", "rent": 4000, "beds": 1, "baths": 1},
         ]},
-        "craigslist:0:2800-4400": {"pages_read": 1, "cards": [
+        "craigslist:0:2800-4400": {"cards": [
             {"url": CL % ("mnh", "7900000001"), "title": "HUGE East Village apartment all utilities included", "rent": 2800,
              "beds": 1, "neighborhood": "East Village"},
             {"url": CL % ("mnh", "7900000002"), "title": "Sublet my LES 1BR Jan-June", "rent": 3000, "beds": 1,
              "neighborhood": "Lower East Side"},
         ]},
-        "craigslist:1:2800-4400": {"pages_read": 1, "cards": [
+        "craigslist:1:2800-4400": {"cards": [
             {"url": CL % ("brk", "7900000003"), "title": "Sunny Williamsburg 1BR near the L - no fee", "rent": 3400,
              "beds": 1, "neighborhood": "Williamsburg"},
         ]},
@@ -156,7 +164,7 @@ DAY1 = {
              "neighborhood": "Williamsburg", "zip": "11249", "floor": 6, "elevator": True, "laundry": "in_unit",
              "commute_minutes": 31, "available_date": "2026-11-15", "dishwasher": True, "ac": "central",
              "outdoor": "private", "doorman": True},
-            unknown={"cats": "page only says 'Pets upon approval'; no cat policy stated"},
+            unknown={"cats": "page only says to ask the leasing office; no pet policy stated"},
             quotes={"free_months": "One month free on a 13-month lease", "rent_advertised": "Gross rent $4,300"}),
         "streeteasy-demo-41-15-29-street-12f": page(
             "streeteasy-demo-41-15-29-street-12f", "41-15 29th Street #12F, Long Island City, NY 11101", TEXT_LIC,
@@ -314,7 +322,7 @@ DAY1 = {
 # --------------------------------------------------------------------------
 
 TEXT_BERRY_2 = TEXT_BERRY.replace("Gross rent $4,300", "Gross rent $4,150").replace(
-    "Pets upon approval.", "Cats allowed. Dogs upon approval.")
+    "Ask the leasing office about our pet policy.", "Cats allowed. Dogs upon approval.")
 TEXT_NORMAN = ("Corner one bedroom in Greenpoint with windows south and west over McGolrick Park. Second floor. "
                "Queen bedroom, two closets. Washer and dryer in unit, dishwasher, split-system AC. Cats allowed. "
                "Private terrace off the living room. Virtual doorman.")
@@ -322,7 +330,7 @@ TEXT_NORMAN = ("Corner one bedroom in Greenpoint with windows south and west ove
 DAY2 = {
     "blocks": {"zillow": "press-and-hold CAPTCHA"},
     "sweeps": {
-        "streeteasy:0:2800-4400": {"pages_read": 1, "cards": [
+        "streeteasy:0:new": {"cards": [
             DAY1["sweeps"]["streeteasy:0:2800-4400"]["cards"][0],
             dict(DAY1["sweeps"]["streeteasy:0:2800-4400"]["cards"][1], rent=4150),
             dict(DAY1["sweeps"]["streeteasy:0:2800-4400"]["cards"][2], rent=3450),
@@ -332,8 +340,8 @@ DAY2 = {
             {"url": SE % "77-norman-avenue/2a", "title": "77 Norman Avenue #2A", "address": "77 Norman Avenue #2A",
              "rent": 3900, "beds": 1, "baths": 1, "neighborhood": "Greenpoint"},
         ]},
-        "craigslist:0:2800-4400": {"pages_read": 1, "cards": DAY1["sweeps"]["craigslist:0:2800-4400"]["cards"]},
-        "craigslist:1:2800-4400": {"pages_read": 1, "cards": [
+        "craigslist:0:new": {"cards": DAY1["sweeps"]["craigslist:0:2800-4400"]["cards"]},
+        "craigslist:1:new": {"cards": [
             # Same post, new id: a repost.
             {"url": CL % ("brk", "7900000099"), "title": "Sunny Williamsburg 1BR near the L - no fee", "rent": 3400,
              "beds": 1, "neighborhood": "Williamsburg"},
@@ -375,21 +383,36 @@ DAY2 = {
 }
 
 # --------------------------------------------------------------------------
-# Day 3: nothing new; 150 Franklin is missing for the second full sweep
+# Day 3: a quiet day. Newest-first sweeps find nothing new and stop.
 # --------------------------------------------------------------------------
 
 DAY3 = {
     "sweeps": {
-        "streeteasy:0:2800-4400": {"pages_read": 1, "cards": DAY2["sweeps"]["streeteasy:0:2800-4400"]["cards"]},
-        "zillow:0:2800-4400": {"pages_read": 2, "cards": [
-            DAY1["sweeps"]["zillow:0:2800-4400"]["cards"][0],
-            DAY1["sweeps"]["zillow:0:2800-3600"]["cards"][0],
-        ]},
-        "craigslist:0:2800-4400": DAY2["sweeps"]["craigslist:0:2800-4400"],
-        "craigslist:1:2800-4400": DAY2["sweeps"]["craigslist:1:2800-4400"],
+        "streeteasy:0:new": {"pages": [DAY2["sweeps"]["streeteasy:0:new"]["cards"], []]},
+        "zillow:0:new": {"cards": [DAY1["sweeps"]["zillow:0:2800-4400"]["pages"][0][0],
+                                   DAY1["sweeps"]["zillow:0:2800-3600"]["cards"][0]]},
+        "craigslist:0:new": DAY2["sweeps"]["craigslist:0:new"],
+        "craigslist:1:new": DAY2["sweeps"]["craigslist:1:new"],
     },
     "pages": {}, "scores": {},
 }
 
-for _day in (DAY1, DAY2, DAY3):
+# --------------------------------------------------------------------------
+# A week on: the full sweep comes round again. 150 Franklin (WATCH) and 305 Broome (PASS) are
+# no longer in the results.
+# --------------------------------------------------------------------------
+
+WEEK2 = {
+    "sweeps": {
+        "streeteasy:0:2800-4400": {"cards": [card for card in DAY2["sweeps"]["streeteasy:0:new"]["cards"]
+                                             if "broome" not in card["url"]]},
+        "zillow:0:2800-4400": DAY3["sweeps"]["zillow:0:new"],
+        "craigslist:0:2800-4400": DAY2["sweeps"]["craigslist:0:new"],
+        "craigslist:1:2800-4400": DAY2["sweeps"]["craigslist:1:new"],
+    },
+    "pages": {"streeteasy-demo-150-franklin-street-2r": {"id": "streeteasy-demo-150-franklin-street-2r", "gone": True}},
+    "scores": {},
+}
+
+for _day in (DAY1, DAY2, DAY3, WEEK2):
     with_photos(_day)

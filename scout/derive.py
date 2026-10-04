@@ -18,10 +18,12 @@ def rents(facts):
     advertised = facts.get("rent_advertised")
     if not is_number(advertised):
         return None, None, "no advertised rent"
-    free = facts.get("free_months") or 0
-    if free <= 0:
+    free, basis, term = facts.get("free_months"), facts.get("rent_advertised_is"), facts.get("lease_term_months")
+    if free == 0:
         return advertised, advertised, None
-    basis, term = facts.get("rent_advertised_is"), facts.get("lease_term_months")
+    if free is None:
+        note = "it is not known whether a concession applies, so only the advertised figure is certain"
+        return (advertised if basis == "gross" else None), (advertised if basis == "net_effective" else None), note
     if basis is None:
         return None, None, "a concession is offered but it is unclear whether the headline rent is gross or net"
     if not is_number(term) or term <= free:
@@ -61,10 +63,14 @@ def in_target_area(facts, areas):
 
 def derive(facts, address_key, cfg):
     gross, net, rent_note = rents(facts)
-    all_in = net
-    if net is not None and facts.get("tenant_pays_broker_fee"):
+    pays_fee = facts.get("tenant_pays_broker_fee")
+    all_in = None
+    if net is not None and pays_fee is False:
+        all_in = net
+    elif net is not None and pays_fee:
         fee, term = facts.get("broker_fee_amount"), facts.get("lease_term_months")
-        all_in = net + fee / float(term) if is_number(fee) and is_number(term) and term > 0 else None
+        if is_number(fee) and is_number(term) and term > 0:
+            all_in = net + fee / float(term)
     income = cfg.profile.get("annual_income")
     return {
         "rent_gross": gross,

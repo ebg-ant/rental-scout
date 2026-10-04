@@ -29,7 +29,24 @@ def data_dir(path=None):
 
 
 def empty():
-    return {"version": 1, "seq": 0, "judge_hash": None, "listings": {}, "run": None, "runs": []}
+    return {"version": 1, "seq": 0, "judge_hash": None, "listings": {}, "run": None, "runs": [], "coverage": {}}
+
+
+def _compact(value):
+    return json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+
+
+def serialise(data):
+    """One listing per line: easy to diff and to eyeball, and many times faster to write than
+    indented JSON, which matters because the store is rewritten after every command."""
+    parts = []
+    for key in sorted(data):
+        if key == "listings":
+            rows = ",\n".join("  %s:%s" % (_compact(rec_id), _compact(data[key][rec_id])) for rec_id in sorted(data[key]))
+            parts.append(' "listings":{\n%s\n }' % rows if rows else ' "listings":{}')
+        else:
+            parts.append(" %s:%s" % (_compact(key), _compact(data[key])))
+    return "{\n" + ",\n".join(parts) + "\n}\n"
 
 
 class Store(object):
@@ -55,8 +72,7 @@ class Store(object):
         handle, temp = tempfile.mkstemp(dir=self.dir, prefix=".store-", suffix=".tmp")
         try:
             with os.fdopen(handle, "w", encoding="utf-8") as out:
-                json.dump(self.data, out, indent=1, sort_keys=True, ensure_ascii=False)
-                out.write("\n")
+                out.write(serialise(self.data))
                 out.flush()
                 os.fsync(out.fileno())
             os.replace(temp, self.path)

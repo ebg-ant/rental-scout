@@ -34,13 +34,22 @@ it). Everything is there: photos and floor plans, scores with the reasoning, wha
 verified, warnings about fees and scams, price history, and questions worth asking. Every claim links
 to its evidence: the photo it is based on, the exact map or Street View, the words on the listing page.
 
+The same list is in `data/shortlist.csv` if you would rather use Google Sheets or share it.
+
 If the connection drops partway, say the same thing again. It picks up where it stopped.
 
 ## 3. Then schedule it
 
 Once a run has gone well, set up a daily scheduled task in Claude using the prompt in
-`agent/SCHEDULED_TASK_PROMPT.md`. From the second run on, it only looks at listings that are new,
-re-priced or re-listed.
+`agent/SCHEDULED_TASK_PROMPT.md`. From then on it keeps itself up to date:
+
+- Every run it reads the newest results and stops as soon as it reaches listings it already knows.
+- About once a week it reads every page, which is how it catches price drops on older listings and
+  notices what has gone.
+- It re-opens your TOURs and WATCHes every few days to make sure they are still up and still the same price.
+- It only spends time on listings that are new, re-priced or re-listed, and tells you about each one once.
+
+With a broad search, the first full read can take two or three runs. The newest listings come first.
 
 ## Talking to it
 
@@ -75,6 +84,7 @@ computer and are excluded from git.
 | `scripts/run.sh` | The full daily run |
 | `scripts/refresh.sh` | Re-check listings already on file (shortlist by default; `--all`, `--older-than-days N`, or ids) |
 | `scripts/rebuild.sh` | No browser: re-apply your config to everything seen and rewrite the report |
+| `scripts/package.sh` | Zip a clean copy for someone else, without your config or data |
 
 The first two hand the browsing to Claude through the Claude Code command line (`claude --chrome`) if
 it is installed. If not, they print the prompt to paste into the desktop app.

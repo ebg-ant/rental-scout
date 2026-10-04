@@ -19,14 +19,17 @@ def _dump(name, value):
 def main():
     key = "streeteasy:0:2800-4400"
     sweep = demo.DAY1["sweeps"][key]
-    _dump("cards.json", {"sweep": key, "total_results": sweep["total_results"], "pages_read": 1, "complete": True,
-                         "capped": False, "cards": sweep["cards"][:3]})
+    _dump("cards.json", {"sweep": key, "page": 1, "last_page": True, "total_results": 3, "cards": sweep["cards"][:3]})
     page = dict(demo.DAY1["pages"]["streeteasy-demo-88-berry-street-6c"])
     ordered = {"id": page.pop("id"), "source": "streeteasy", "url": sweep["cards"][1]["url"]}
     ordered.update(page)
     ordered["photos"] = ordered["photos"][:3] + [{"url": ordered["photos"][3], "caption": "balcony"}]
     ordered["facts"] = dict(ordered["facts"], photo_count=4)
     _dump("enrich.json", ordered)
+    _dump("enrich_stop_early.json", {
+        "id": "streeteasy-demo-41-15-29-street-12f", "source": "streeteasy", "url": sweep["cards"][2]["url"], "stop_early": True,
+        "raw_text": demo.TEXT_LIC, "facts": {"cats": "case_by_case"},
+        "provenance": {"cats": {"where": "description", "quote": "Pets considered case by case"}}})
     _dump("score.json", demo.DAY1["scores"]["craigslist-7900000003"])
 
 

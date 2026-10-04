@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 
 from .config import OP_WORDS
-from .fields import ENUM, NUMBER, TEXT
+from .fields import ENUM, NUMBER, TEXT, base_inputs
 from .util import is_number, money, norm_text
 
 PASS, FAIL, UNKNOWN = "pass", "fail", "unknown"
@@ -93,11 +93,17 @@ def expected_text(rule):
     return text
 
 
-def run(cfg, values):
-    """Evaluate every enabled rule and roll the results up."""
+def run(cfg, values, ignoring=()):
+    """Evaluate every enabled rule and roll the results up.
+
+    `ignoring` names facts to leave out of it: rules that depend on any of them are
+    skipped. It answers "would this still fail whatever the rent is now?".
+    """
     rows, fails, unknowns, dealbreaker = [], 0, 0, False
     for rule in cfg.gate["rules"]:
         if not rule["enabled"]:
+            continue
+        if ignoring and set(base_inputs(rule["field"], cfg.registry)) & set(ignoring):
             continue
         status = _evaluate_rule(rule, values, cfg.registry)
         counted = status
@@ -108,12 +114,23 @@ def run(cfg, values):
             dealbreaker = dealbreaker or rule["dealbreaker"]
         elif counted == UNKNOWN:
             unknowns += 1
+        actual = show(rule["field"], values.get(rule["field"]))
+        if "unless" in rule and status == PASS and evaluate(rule, values, cfg.registry) != PASS:
+            other = rule["unless"]["field"]     # it passed on the exception, so show the exception
+            actual += " (%s %s)" % (other.replace("_", " "), show(other, values.get(other)))
         rows.append({"id": rule["id"], "label": rule["label"], "field": rule["field"], "status": status,
-                     "counted_as": counted, "actual": show(rule["field"], values.get(rule["field"])),
+                     "counted_as": counted, "actual": actual,
                      "expected": expected_text(rule), "dealbreaker": rule["dealbreaker"]})
     failed = dealbreaker or fails > cfg.gate["max_fails"]
     return {"result": FAIL if failed else PASS, "fails": fails, "unknowns": unknowns,
             "dealbreaker": dealbreaker, "rules": rows}
+
+
+def known_to_fail(cfg, gate):
+    """True only if facts that were actually recorded sink the listing. An unknown that
+    `on_unknown: fail` counts as a miss does not qualify: nobody has looked yet."""
+    misses = [row for row in gate["rules"] if row["status"] == FAIL]
+    return any(row["dealbreaker"] for row in misses) or len(misses) > cfg.gate["max_fails"]
 
 
 def card_check(cfg, values):

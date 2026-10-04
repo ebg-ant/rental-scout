@@ -5,20 +5,20 @@ readers by IP address, so go slowly, in the user's normal browser. A "This IP ha
 blocked" page or an empty error page: stop and run
 `python3 -m scout blocked craigslist "<what you saw>"`. Do not switch networks to get around it.
 
-## Steps
+One task is one results page, handed in exactly as described in `agent/sources/streeteasy.md`.
+Notes for Craigslist:
+
+## Reading the page
 
 1. Wait `wait_seconds`, then open the task's `url` (one borough, one price band, newest first).
 2. Check the min and max price boxes show `price_min` and `price_max`.
-3. Read each result into a card. List view is quickest to read.
-4. Page on with the arrow at the top, waiting `wait_between_pages_seconds`. Stop at the last page or
-   at `max_pages`; if there were more pages, hand in `"capped": true`.
-5. Results are newest first. Once the reply to a page you handed in shows `"new": 0`, stop and hand
-   in an empty `cards` list with `"stopped_early": true`. (So on Craigslist, hand in page by page with
-   `"complete": false`.) Shortlisted posts that drop out of view get re-opened after a few days.
+3. For a `page` above 1 the task says how to get there in `reach_page`. Usually the tab is still on the
+   page before, and it is one click on the forward arrow. If not, open the URL (page 1) and click
+   forward, waiting `wait_between_clicks_seconds` before each click.
+4. List view is quickest to read. `last_page` is true when the forward arrow is greyed out.
+5. A normal page that says "no results" is not a block. Hand in `"cards": []` with `"last_page": true`.
 
-## Card
-
-Same shape as `agent/sources/streeteasy.md`. Notes for Craigslist:
+## Cards
 
 - `url` ends in `/<digits>.html`; the scout takes the id from there.
 - `title` is the post title, exactly. Prefilters read it, and it is how reposts are spotted.
@@ -32,4 +32,5 @@ Same shape as `agent/sources/streeteasy.md`. Notes for Craigslist:
   `in_building`; "no laundry on site" is `none`; "furnished" is furnished. Copy the chips into
   `raw_text` so they can be quoted.
 - The address, if any, is the line above the map. A cross street or a map pin is not an address.
+- "This posting has expired" or "has been deleted by its author" means gone.
 - Read for scam signals (`agent/ENRICH.md`). Never use the reply button.

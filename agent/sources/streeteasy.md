@@ -1,31 +1,31 @@
 # Sweeping StreetEasy
 
-StreetEasy has strong bot detection. Use the user's normal, logged-in Chrome window, one tab, at a
-human pace. Any "Press & Hold", "unusual activity" or access-denied page: stop and run
+StreetEasy has strong bot detection. Use the user's normal, logged-in Chrome window, one tab for this site, at
+a human pace. Any "Press & Hold", "unusual activity" or access-denied page: stop and run
 `python3 -m scout blocked streeteasy "<what you saw>"`.
 
-## Steps
+## One task is one results page
 
-1. Wait `wait_seconds`, then open the task's `url`.
-2. Check the price filter on the page shows `price_min` to `price_max`. If `price_filter` says it is
-   not in the URL, or the page shows something else, set it by hand in the Price filter.
-3. Note the total result count at the top of the list (`total_results`).
-4. Read every rental card on the page into a card (below). Skip ads for other buildings only if
-   they have no price or address. "Featured" and "Sponsored" cards are real listings: include them.
-5. Go to the next page with the pager at the bottom, waiting `wait_between_pages_seconds` first.
-   Start after `resume_after_page` if it is above 0. Stop at the last page or at `max_pages`.
-6. Hand in the cards. For a long sweep, hand in after each page with `"complete": false` so nothing
-   is lost if the session drops.
+1. Wait `wait_seconds`, then open the task's `url`. It already points at the right `page`.
+2. On page 1, check the page shows the price range `price_min` to `price_max` and is sorted by
+   **Newest**. If `filters` says they are not in the URL, or the page shows something else, set them
+   by hand.
+3. Note the total result count at the top of the list (`total_results`). Leave it out if you are not sure
+   the number counts the same thing as the cards.
+4. Read every rental card on the page into a card (below). "Featured" and "Sponsored" cards are real
+   listings: include them. Skip only ads with no price or address.
+5. Hand the page in. Set `last_page` to true if the pager has no next page.
+6. Run `python3 -m scout next`. The scout decides whether to read the next page, stop, or split the
+   search into narrower price bands. Do not decide that yourself.
 
-## Card
+## What to hand in
 
 ```json
 {
   "sweep": "<sweep from the task>",
+  "page": 1,
+  "last_page": false,
   "total_results": 212,
-  "pages_read": 3,
-  "complete": true,
-  "capped": false,
   "cards": [
     {
       "url": "https://streeteasy.com/building/245-east-10-street-new_york/4b",
@@ -40,11 +40,17 @@ human pace. Any "Press & Hold", "unusual activity" or access-denied page: stop a
 }
 ```
 
+- `page` is the number from the task. Pages are handed in one at a time, in order.
 - Numbers are plain numbers: `3950`, not `"$3,950"`. Studio is `"beds": 0`. Leave out what the card
   does not show.
 - `rent` is the number the card shows. If the card says it is net effective, put that in `snippet`.
 - `url` must be the listing's own page, not the search page. `first_photo` is the address of the card's
   image; it becomes the thumbnail in the report and helps spot reposts.
-- `capped: true` means you reached `max_pages` and there were more pages. The scout then splits the
-  price band in two and asks you to sweep each half, so nothing is missed.
-- `complete: true` means you reached the last page of results (or were capped).
+
+## The two kinds of sweep
+
+The task's `mode` tells you which this is. You read the page the same way either way.
+
+- `incremental`: the daily top-up. Newest first; the scout stops at the first page with nothing new.
+- `full`: every page, on the first run and about once a week. It is how price changes on older
+  listings and listings that have gone are noticed. A long one is spread over several runs.

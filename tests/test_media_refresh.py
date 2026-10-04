@@ -179,8 +179,8 @@ class RefreshQueue(PipelineCase):
             self.refresh(ids=["nope"])
 
     def test_refresh_run_rereads_pages_without_sweeping(self):
-        self.refresh(ids=[BERRY, E7])
-        pages = {BERRY: demo.DAY2["pages"][BERRY], E7: {"id": E7, "gone": True}}
+        self.refresh(ids=[BERRY, FRANKLIN])
+        pages = {BERRY: demo.DAY2["pages"][BERRY], FRANKLIN: {"id": FRANKLIN, "gone": True}}
         self.agent.log = []
         self.agent.call(pipeline.start, False)
         while True:
@@ -188,24 +188,62 @@ class RefreshQueue(PipelineCase):
             self.agent.log.append(task)
             if task["task"] == "finish":
                 break
-            self.assertEqual((task["task"], task["why"]), ("enrich", "recheck"))
+            self.assertEqual((task["task"], task["why"]), ("enrich", "refresh"))
             self.assertIn("previous_facts", task)
             self.agent.call(pipeline.enrich, pages[task["id"]])
-        self.agent.call(pipeline.finish)
+        finished = self.agent.call(pipeline.finish)
         recs = self.listings()
         self.assertEqual(len(self.agent.log), 3)
         self.assertEqual(recs[BERRY]["verdict"], "TOUR")         # cats now stated, rent lower
-        self.assertEqual(recs[BERRY]["price_history"][-1]["rent"], 4150)
-        self.assertEqual(recs[E7]["status"], "delisted")
+        last = recs[BERRY]["price_history"][-1]
+        self.assertEqual((last["date"], last["source"], last["rent"], last["where"]), ("2026-10-06", "streeteasy", 4150, "page"))
+        self.assertEqual(finished["counts"]["price_changed"], 1)  # noticed on the page, with no sweep
+        self.assertEqual(recs[FRANKLIN]["status"], "delisted")
+        text = summary.build(Store(self.dir).load())
+        self.assertIn("Refresh only", text)
+        self.assertIn("rent $4,300 -> $4,150 (now TOUR)", text)
 
-    def test_naming_a_delisted_listing_gives_it_another_look(self):
+    def test_a_sweep_sighting_does_not_cancel_a_refresh_the_user_asked_for(self):
+        self.refresh(ids=[BERRY])
+        self.agent.call(pipeline.start)
+        task = self.agent.call(pipeline.next_task)
+        self.agent.call(pipeline.ingest, {"sweep": task["sweep"], "page": 1, "last_page": True,
+                                          "cards": demo.DAY1["sweeps"]["streeteasy:0:2800-4400"]["cards"]})
+        self.assertEqual(self.listings()[BERRY]["refresh"], "refresh")
+
+    def test_gone_on_one_site_tries_the_other_before_giving_up(self):
+        self.refresh(ids=[E7])
         self.agent.call(pipeline.start, False)
-        self.agent.call(pipeline.enrich, {"id": E7, "gone": True})
+        first = self.agent.call(pipeline.next_task)
+        self.assertEqual((first["source"], len(first["other_urls"])), ("streeteasy", 1))
+        reply = self.agent.call(pipeline.enrich, {"id": E7, "source": "streeteasy", "gone": True})
+        self.assertEqual(reply["result"], "link_gone")
+        self.assertIsNone(self.listings()[E7]["delisted_at"])
+        second = self.agent.call(pipeline.next_task)
+        self.assertEqual((second["id"], second["source"]), (E7, "zillow"))
+        self.assertEqual(self.agent.call(pipeline.enrich, {"id": E7, "gone": True})["result"], "delisted")
+
+    def test_naming_a_delisted_listing_gives_it_another_look_that_sticks(self):
+        self.agent.call(pipeline.start, False)
+        self.agent.call(pipeline.enrich, {"id": FRANKLIN, "gone": True})
         self.agent.call(pipeline.finish)
-        self.assertNotIn(E7, self.refresh()["queued"])
-        self.assertEqual(self.refresh(ids=[E7])["queued"], [E7])
+        self.assertNotIn(FRANKLIN, pipeline.queue_refresh(Store(self.dir).load())["queued"])   # not saved
+        with opened(self.dir) as store:
+            store.listings[FRANKLIN]["sources"][0]["missed_sweeps"] = 2
+        self.assertEqual(self.refresh(ids=[FRANKLIN])["queued"], [FRANKLIN])
         self.agent.call(pipeline.start, False)
-        self.assertEqual(self.agent.call(pipeline.next_task)["id"], E7)
+        self.assertEqual(self.agent.call(pipeline.next_task)["id"], FRANKLIN)
+        self.agent.call(pipeline.enrich, demo.DAY1["pages"][FRANKLIN])
+        rec = self.listings()[FRANKLIN]
+        self.assertEqual((rec["status"], rec["delisted_at"], rec["sources"][0]["missed_sweeps"]), ("active", None, 0))
+
+    def test_setting_status_active_undoes_a_delisting(self):
+        self.agent.call(pipeline.start, False)
+        self.agent.call(pipeline.enrich, {"id": FRANKLIN, "gone": True})
+        with opened(self.dir) as store:
+            pipeline.set_status(store, FRANKLIN, "active")
+        rec = self.listings()[FRANKLIN]
+        self.assertEqual((rec["status"], rec["delisted_at"], rec["sources"][0]["active"]), ("active", None, True))
 
 
 @unittest.skipUnless(shutil.which("bash"), "needs bash")
@@ -246,7 +284,7 @@ class Scripts(unittest.TestCase):
         self.assertEqual(code, 0, out)
         self.assertIn('"count": 6', out)
         self.assertIn("already queued", self.claude_args())
-        waiting = [r for r in Store(self.dir).load().listings.values() if r["refresh"] == "recheck"]
+        waiting = [r for r in Store(self.dir).load().listings.values() if r["refresh"] == "refresh"]
         self.assertEqual(len(waiting), 6)
 
     def test_refresh_with_nothing_to_do_does_not_call_claude(self):
@@ -286,9 +324,10 @@ class DemoReport(unittest.TestCase):
         self.addCleanup(os.environ.pop, "SCOUT_NOW", None)
         paths, _ = demo_builder.build(folder)
         with open(paths["report"], encoding="utf-8") as handle:
-            data = json.loads(re.search(r"var DATA = (.*);\n", handle.read()).group(1).replace("<\\/", "</"))
+            data = json.loads(re.search(r"var DATA = (.*);\n", handle.read()).group(1))
         for item in data["listings"]:
-            for image in item["photos"] + item["floor_plans"]:
+            cited = [{"url": url} for crit in item["criteria"] for e in crit.get("evidence", []) for url in e.get("urls", [])]
+            for image in item["photos"] + item["floor_plans"] + cited:
                 self.assertTrue(os.path.exists(os.path.join(folder, image["url"])), image["url"])
 
 

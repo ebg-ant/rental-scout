@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from . import gate as gate_mod
 from . import verdict as v
-from .util import is_number, money, plural
+from .util import is_number, local_date, money, plural
 
 
 def title_of(rec):
@@ -18,13 +18,21 @@ def fact(rec, name):
     return rec["card"].get(name)
 
 
+def advertised_rent(rec):
+    """The headline figure as last seen: on the page if it was read, else on the search card."""
+    facts = rec.get("facts") or {}
+    return facts["rent_advertised"] if is_number(facts.get("rent_advertised")) else rec["card"].get("rent")
+
+
 def rent_text(rec):
     derived = rec.get("derived") or {}
     net, gross = derived.get("rent_net_effective"), derived.get("rent_gross")
     if net and gross and gross - net >= 1:
         return "%s net (%s gross)" % (money(net), money(gross))
-    rent = net or gross or rec["card"].get("rent")
-    return money(rent) if is_number(rent) else "rent unknown"
+    if net or gross:
+        return money(net or gross)
+    advertised = (rec.get("facts") or {}).get("rent_advertised") or rec["card"].get("rent")
+    return "%s advertised" % money(advertised) if is_number(advertised) else "rent unknown"
 
 
 def _size_text(rec):
@@ -63,7 +71,7 @@ def _entry(rec, detail=True):
 
 def _sort_key(rec):
     score = (rec.get("rubric") or {}).get("score")
-    rent = (rec.get("derived") or {}).get("rent_net_effective") or rec["card"].get("rent") or 0
+    rent = (rec.get("derived") or {}).get("rent_net_effective") or advertised_rent(rec) or 0
     return (-(score if score is not None else -1), rent)
 
 
@@ -78,6 +86,8 @@ def pass_bucket(rec):
 
 def open_questions(rec):
     """What a human could ask to settle this listing. The scout never asks itself."""
+    if rec.get("verdict") in (v.PASS, v.PASS_RISK):
+        return []     # ruled out: nothing is worth chasing
     items = []
     if rec.get("gate"):
         items += ["Confirm: %s" % label for label in gate_mod.unknown_labels(rec["gate"])]
@@ -94,16 +104,27 @@ def build(store, run=None):
     listings = store.listings
     touched = [listings[i] for i in run["touched"] if i in listings]
     counts = run["counts"]
-    lines = ["# Rental Scout: %s" % run["finished_at"][:10], ""]
-    lines.append("%s seen, %d new, %s, %d relisted. Opened %s, scored %d.%s" % (
-        plural(counts["cards"], "card"), counts["new"], plural(counts["price_changed"], "price change"),
-        counts["relisted"], plural(run["evaluated"], "listing"), run["scored"],
+    lines = ["# Rental Scout: %s" % local_date(run["finished_at"]).isoformat(), ""]
+    if run["discovery"]:
+        seen = "%s seen, %d new, " % (plural(counts["cards"], "card"), counts["new"])
+    elif counts["cards"]:
+        seen = "No search this run; %s handed in by hand. " % plural(counts["cards"], "listing")
+    else:
+        seen = "Refresh only, no search for new listings. "
+    lines.append("%s%s, %d relisted. Opened %s, scored %d.%s" % (
+        seen, plural(counts["price_changed"], "price change"), counts["relisted"],
+        plural(run["evaluated"], "listing"), run["scored"],
         " Resumed %s after an interruption." % plural(run["resumes"], "time") if run.get("resumes") else ""))
     lines.append("")
 
+    # News: listings reaching this verdict for the first time. Each is announced once.
+    news = set()
     for name in (v.TOUR, v.WATCH):
-        group = sorted([r for r in touched if r.get("verdict") == name and not r.get("delisted_at")], key=_sort_key)
-        lines.append("## %s: %d from this run" % (name, len(group)))
+        # Still true today? A summary can be rebuilt after a config change, a delisting or a "cross it off".
+        group = sorted([listings[i] for i in run["announce"][name] if i in listings and listings[i].get("verdict") == name
+                        and not listings[i].get("delisted_at") and listings[i]["status"] != "rejected"], key=_sort_key)
+        news.update(rec["id"] for rec in group)
+        lines.append("## %s: %d new" % (name, len(group)))
         if not group:
             lines.append("None.")
         for rec in group:
@@ -114,8 +135,7 @@ def build(store, run=None):
         lines.append("")
 
     changes = [r for r in touched if (r.get("last_change") or {}).get("run") == run["id"]]
-    gone = [listings[i] for i in run.get("delisted", []) if i in listings
-            and listings[i].get("verdict") in (v.TOUR, v.WATCH)]
+    gone = [listings[i] for i in run.get("delisted", []) if i in listings and listings[i].get("verdict") in (v.TOUR, v.WATCH)]
     if changes or gone:
         lines.append("## Changes to listings already tracked")
         for rec in changes:
@@ -128,11 +148,13 @@ def build(store, run=None):
         lines.append("")
 
     standing = sorted([r for r in listings.values() if r.get("verdict") == v.TOUR and not r.get("delisted_at")
-                       and r["status"] == "active" and r["id"] not in run["touched"]], key=_sort_key)
+                       and r["status"] == "active" and r["id"] not in news], key=_sort_key)
     if standing:
         lines.append("## Still standing: earlier TOURs not yet toured")
         for rec in standing:
             lines += _entry(rec, detail=False)
+            if rec["id"] in run["touched"]:
+                lines.append("  Checked this run: still up.")
         lines.append("")
 
     passed = [r for r in touched if r.get("verdict") in (v.PASS, v.PASS_RISK)]
@@ -147,14 +169,23 @@ def build(store, run=None):
             lines.append("  - %s: %s" % (title_of(rec), rec["verdict_reason"]))
     lines.append("")
 
+    vanished = [r for r in touched if r.get("delisted_at") and not r.get("verdict")]
+    if vanished:
+        lines.append("## Already gone: %d" % len(vanished))
+        lines += ["- %s: the page was gone or marked rented when opened" % title_of(rec) for rec in vanished]
+        lines.append("")
+
     problems = []
     for source, info in sorted(run.get("blocked", {}).items()):
         problems.append("%s blocked the browser (%s). The scout stopped using it for this run and did not retry."
                         % (source, info["what"]))
     problems += run.get("notes", [])
+    for source, cover in sorted(run.get("coverage", {}).items()):
+        if cover["full_sweep_in_progress"]:
+            problems.append("%s: the full sweep is not finished (%s left). It carries on next run."
+                            % (source, plural(cover["searches_left"], "search", "searches")))
     if run.get("left_to_open"):
-        problems.append("%s waiting to be opened next run (per-run limit reached)."
-                        % plural(run["left_to_open"], "listing"))
+        problems.append("%s waiting to be opened next run." % plural(run["left_to_open"], "listing"))
     if run.get("left_to_score"):
         problems.append("%s waiting to be scored next run." % plural(run["left_to_score"], "listing"))
     if run.get("abandoned"):

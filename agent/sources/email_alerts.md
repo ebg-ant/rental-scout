@@ -9,7 +9,7 @@ Gmail connector, read-only. Turn it on with `search.sources.email_alerts.enabled
    `from:(streeteasy.com OR zillow.com) newer_than:2d`.
 2. Turn each listing in each email into a card, in the same shape as
    `agent/sources/streeteasy.md`: address, rent, beds, baths, neighborhood if shown, and the link.
-3. Hand them in with the task's `sweep` value and `"complete": true`.
+3. Hand them all in at once with the task's `sweep` value, `"page": 1` and `"last_page": true`.
 
 ## Notes
 

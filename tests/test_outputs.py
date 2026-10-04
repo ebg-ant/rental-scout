@@ -60,7 +60,9 @@ class CommandLine(TempDirCase):
         self.assertEqual((code, result["verdict"], result["unknown_weight"]), (0, "WATCH", 0.4))
         code, out, _ = self.scout("finish")
         self.assertEqual(code, 0)
-        self.assertIn("## WATCH: 1 from this run", out)
+        self.assertIn("## WATCH: 1 new", out)
+        self.assertIn("1 listing handed in by hand", out)
+        self.assertTrue(os.path.exists(os.path.join(self.dir, "shortlist.csv")))
         self.assertTrue(os.path.exists(os.path.join(self.dir, "report.html")))
         self.assertEqual(len(os.listdir(os.path.join(self.dir, "summaries"))), 1)
 
@@ -87,7 +89,7 @@ class CommandLine(TempDirCase):
         self.assertNotIn("dogs", fields)              # that rule is switched off
         self.assertNotIn("rent_net_effective", fields)  # calculated
         links = dict((link["id"], link["url"]) for link in task["helper_links"])
-        self.assertIn("origin=212+East+7th+Street+%234B%2C+New+York%2C+NY", links["directions"])
+        self.assertIn("origin=212+East+7th+Street+%234B%2C+East+Village%2C+New+York%2C+NY", links["directions"])
         self.assertIn("Grand+Central", links["directions"])
         self.assertNotIn("street_view", links)        # no coordinates yet
 
@@ -109,7 +111,7 @@ class ReportPage(TempDirCase):
 
     def data(self, html):
         blob = re.search(r"var DATA = (.*);\n", html).group(1)
-        return json.loads(blob.replace("<\\/", "</"))
+        return json.loads(blob)
 
     def test_every_listing_is_in_the_page_with_reason_and_links(self):
         data = self.data(self.build())

@@ -8,7 +8,7 @@ Risk flags can force the verdict `PASS (risk)`; the rest only inform.
 from __future__ import annotations
 
 from .config import compile_phrase
-from .util import is_number, money, norm_text
+from .util import is_number, money, norm_text, parse_time, plural, today_iso
 
 
 def _flag(flag_id, kind, message, severity=None):
@@ -50,11 +50,13 @@ def run(cfg, record, values, comps):
                                % (money(rent), round(floor_pct * 100), money(typical), basis), "high"))
     text = norm_text(" \n ".join(filter(None, [record.get("raw_text"), (record.get("card") or {}).get("title"),
                                                (record.get("card") or {}).get("snippet")])))
+    said = []
     for phrase in cfg.risk.get("scam_phrases") or []:
         found = compile_phrase(phrase).search(text)
-        if found:
-            flags.append(_flag("scam_language", "risk", 'Listing text says "%s"' % found.group(0), "high"))
-            break
+        if found and found.group(0) not in said:
+            said.append(found.group(0))
+    if said:
+        flags.append(_flag("scam_language", "risk", "Listing text says %s" % ", ".join('"%s"' % s for s in said[:4]), "high"))
     if facts.get("asks_deposit_before_viewing"):
         flags.append(_flag("deposit_before_viewing", "risk", "Asks for money before a viewing", "high"))
     if facts.get("owner_remote"):
@@ -101,7 +103,19 @@ def run(cfg, record, values, comps):
         flags.append(_flag("income_short", "cost", "Needs about %s a year (%sx rent, %s); you entered %s.%s"
                            % (money(multiple * gross), ("%g" % multiple), stated, money(income), extra)))
 
+    earliest, available = cfg.profile.get("move_in_earliest"), facts.get("available_date")
+    if earliest and available and available < earliest:
+        days = (parse_time(earliest) - parse_time(available)).days
+        flags.append(_flag("available_early", "cost", "Available %s, %s before you want to move; you may be asked to "
+                                                      "start paying then" % (available, plural(days, "day"))))
+
     # --- info -------------------------------------------------------------
+    slow = cfg.risk.get("long_listed_days")
+    if slow and facts.get("listed_date"):
+        age = (parse_time(today_iso()) - parse_time(facts["listed_date"])).days
+        if age >= slow:
+            flags.append(_flag("long_listed", "info", "Listed %d days ago. Ask why it has not rented; there may be "
+                                                      "room to negotiate" % age))
     if facts.get("level") in ("basement", "garden") or facts.get("flood_zone") in ("moderate", "high"):
         bits = []
         if facts.get("level") in ("basement", "garden"):
@@ -115,7 +129,7 @@ def run(cfg, record, values, comps):
         flags.append(_flag("flex_walls", "info", "A bedroom relies on a flex wall or is 'convertible'"))
     prices = sorted(set(s["rent"] for s in record.get("sources", []) if s.get("active") and is_number(s.get("rent"))))
     if len(prices) > 1:
-        flags.append(_flag("price_differs_by_site", "info", "Advertised at %s on different sites"
+        flags.append(_flag("price_differs_by_site", "info", "Advertised at %s in different listings"
                            % " and ".join(money(p) for p in prices)))
     if record.get("possible_duplicates"):
         flags.append(_flag("possible_duplicate", "info",

@@ -13,7 +13,10 @@ echo "==> 1/3 check the config"
 check_config
 
 echo "==> 2/3 queue listings for a fresh look"
-queued="$(scout refresh "$@")"
+if ! queued="$(scout refresh "$@")"; then
+  echo "$queued"    # the scout explains itself on stdout
+  exit 1
+fi
 echo "$queued"
 if echo "$queued" | grep -q '"count": 0'; then
   exit 0

@@ -1,9 +1,8 @@
 {
   "sweep": "streeteasy:0:2800-4400",
-  "total_results": 7,
-  "pages_read": 1,
-  "complete": true,
-  "capped": false,
+  "page": 1,
+  "last_page": true,
+  "total_results": 3,
   "cards": [
     {
       "url": "https://streeteasy.com/building/demo-212-east-7-street/4b",

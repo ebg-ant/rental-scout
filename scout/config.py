@@ -13,7 +13,7 @@ import re
 
 from ._vendor import yaml
 from .fields import BOOL, DATE, ENUM, LIST, NUMBER, TEXT, build_registry, check_value
-from .util import ScoutError, is_number, money, stable_hash
+from .util import ScoutError, is_number, is_real_date, money, stable_hash
 
 DEFAULT_CONFIG = "scout.config.yaml"
 
@@ -75,6 +75,7 @@ class Config(object):
         self.risk = raw.get("risk") or {}
         self.costs = raw.get("costs") or {}
         self.limits = raw["limits"]
+        self.refresh = raw["refresh"]
         self.calibration = raw.get("calibration") or {}
 
     def enabled_sources(self):
@@ -122,6 +123,15 @@ class _Checker(object):
         if not isinstance(value, kind):
             self.err(name, "should be a %s" % ("list" if kind is list else "set of key: value lines"))
             return None
+        return value
+
+    def mapping(self, where, value):
+        """`value` if it is a set of key: value lines, {} if absent; reports anything else."""
+        if value is None:
+            return {}
+        if not isinstance(value, dict):
+            self.err(where, "should be a set of key: value lines")
+            return {}
         return value
 
     def number(self, where, value, low=None, high=None, whole=False, optional=False):
@@ -228,8 +238,8 @@ def _check_profile(chk):
     chk.number("profile.annual_income", profile.get("annual_income"), low=0, optional=True)
     for key in ("move_in_earliest", "move_in_latest"):
         value = profile.get(key)
-        if value is not None and not re.match(r"^\d{4}-\d{2}-\d{2}$", str(value)):
-            chk.err("profile." + key, "should be a date like 2026-12-01")
+        if value is not None and not is_real_date(value):
+            chk.err("profile." + key, "should be a real date like 2026-12-01")
     first, last = profile.get("move_in_earliest"), profile.get("move_in_latest")
     if first and last and str(first) > str(last):
         chk.err("profile", "move_in_earliest is after move_in_latest")
@@ -245,17 +255,21 @@ def _check_search(chk):
     high_ok = chk.number("search.price_max", search.get("price_max"), low=1)
     if low_ok and high_ok and search["price_min"] >= search["price_max"]:
         chk.err("search", "price_min should be below price_max")
-    areas = search.get("areas") or {}
+    areas = chk.mapping("search.areas", search.get("areas"))
+    search["areas"] = areas
     chk.text_list("search.areas.neighborhoods", areas.get("neighborhoods"))
-    chk.text_list("search.areas.zips", areas.get("zips"))
-    aliases = areas.get("aliases") or {}
-    if not isinstance(aliases, dict):
-        chk.err("search.areas.aliases", "should map a canonical name to a list of other spellings")
-    else:
-        for name, others in aliases.items():
-            chk.text_list("search.areas.aliases.%s" % name, others)
-    if not isinstance(search.get("street_aliases") or {}, dict):
-        chk.err("search.street_aliases", "should map one street name to another")
+    if chk.text_list("search.areas.zips", areas.get("zips")):
+        clean_zips = []
+        for value in areas.get("zips") or []:
+            # YAML reads an unquoted 07030 as the octal number 3608.
+            if not re.match(r"^\d{5}$", str(value)):
+                chk.err("search.areas.zips", "%r is not a 5-digit zip. Put quotes around zips that start with 0" % value)
+            clean_zips.append(str(value))
+        areas["zips"] = clean_zips
+    for name, others in chk.mapping("search.areas.aliases", areas.get("aliases")).items():
+        chk.text_list("search.areas.aliases.%s" % name, others)
+    chk.mapping("search.street_aliases", search.get("street_aliases"))
+    search["commute_anchor"] = chk.mapping("search.commute_anchor", search.get("commute_anchor"))
     for index, link in enumerate(search.get("helper_links") or []):
         if not isinstance(link, dict) or not link.get("id") or not link.get("url"):
             chk.err("search.helper_links[%d]" % index, "needs id and url")
@@ -278,13 +292,16 @@ def _check_search(chk):
         chk.text_list(where + ".saved_search_urls", spec.get("saved_search_urls"))
         chk.number(where + ".max_pages", spec.get("max_pages"), low=1, whole=True, optional=True)
         chk.number(where + ".throttle_seconds", spec.get("throttle_seconds"), low=0, optional=True)
+        chk.number(where + ".band_width", spec.get("band_width"), low=50, whole=True, optional=True)
+        chk.mapping(where + ".params", spec.get("params"))
         if not spec.get("enabled"):
             continue
         enabled += 1
         urls = spec.get("saved_search_urls") or []
         for url in urls:
             if not str(url).startswith("https://"):
-                chk.err(where + ".saved_search_urls", "%r should start with https://" % url)
+                chk.err(where + ".saved_search_urls", "%r should start with https://. If this is a piece of a longer URL, "
+                                                      "put the whole URL in \"quotes\": commas split it otherwise" % url)
         if style == "craigslist" and not urls and not (spec.get("site") and spec.get("subareas")):
             chk.err(where, "needs either saved_search_urls, or site plus subareas")
         if style in ("streeteasy", "zillow", "manual") and not urls:
@@ -342,7 +359,7 @@ def _check_gate(chk, registry):
         if not isinstance(rule, dict):
             chk.err("gate.rules[%d]" % index, "should have field, op and value")
             continue
-        rule.setdefault("id", str(rule.get("field")))
+        rule["id"] = str(rule.get("id") or rule.get("field"))
         where = "gate.rules[%s]" % rule["id"]
         if rule["id"] in seen:
             chk.err(where, "id is used twice; give each rule its own id")
@@ -373,6 +390,7 @@ def _check_gate(chk, registry):
 
 def _check_capture(chk, registry):
     capture = chk.section("capture", required=False) or {}
+    chk.raw["capture"] = capture
     always = capture.get("always") or []
     if not chk.text_list("capture.always", always):
         return
@@ -396,6 +414,7 @@ def _check_rubric(chk):
             chk.err("rubric[%d]" % index, "needs an id")
             weights_ok = False
             continue
+        crit["id"] = str(crit["id"])
         where = "rubric[%s]" % crit["id"]
         if crit["id"] in seen:
             chk.err(where, "id is used twice")
@@ -420,7 +439,7 @@ def _check_rubric(chk):
                 else:
                     clean[str(int(level) if int(level) == level else level)] = example
             crit["anchors"] = clean
-        required = crit.setdefault("evidence_required", [])
+        required = crit["evidence_required"] = crit.get("evidence_required") or []
         if chk.text_list(where + ".evidence_required", required):
             for kind in required:
                 if kind not in EVIDENCE_TYPES:
@@ -458,6 +477,7 @@ def _check_risk_costs(chk):
         risk.setdefault("min_comps", 8)
         chk.number("risk.price_floor_pct", risk.get("price_floor_pct"), low=0, high=1, optional=True)
         chk.number("risk.min_comps", risk["min_comps"], low=3, whole=True)
+        chk.number("risk.long_listed_days", risk.get("long_listed_days"), low=1, optional=True)
         chk.number("risk.low_flags_to_pass", risk["low_flags_to_pass"], low=1, whole=True)
         chk.phrases("risk.scam_phrases", risk.get("scam_phrases"))
         chk.text_list("risk.disable", risk.get("disable"))
@@ -478,20 +498,39 @@ def _check_limits(chk):
     limits = chk.section("limits")
     if limits is None:
         return
-    limits.setdefault("delist_after_missed_sweeps", 2)
     limits.setdefault("min_band_width", 100)
-    limits.setdefault("recheck_after_days", 3)
+    limits.setdefault("max_search_pages_per_run", 6)
     chk.number("limits.max_listings_per_run", limits.get("max_listings_per_run"), low=1, whole=True)
+    chk.number("limits.max_search_pages_per_run", limits["max_search_pages_per_run"], low=1, whole=True)
     chk.number("limits.throttle_seconds", limits.get("throttle_seconds"), low=0)
     chk.number("limits.max_runtime_minutes", limits.get("max_runtime_minutes"), low=1)
-    chk.number("limits.delist_after_missed_sweeps", limits["delist_after_missed_sweeps"], low=1, whole=True)
     chk.number("limits.min_band_width", limits["min_band_width"], low=1)
-    chk.number("limits.recheck_after_days", limits["recheck_after_days"], low=1)
+    known = ("max_listings_per_run", "max_search_pages_per_run", "throttle_seconds", "max_runtime_minutes", "min_band_width")
+    for name in limits:
+        if name not in known:
+            chk.err("limits." + str(name), "is not a setting. Expected %s. Re-check and delisting settings live under "
+                                           "`refresh`" % ", ".join(known))
     if is_number(limits.get("throttle_seconds")) and limits["throttle_seconds"] < 3:
         chk.warn("limits.throttle_seconds", "under 3 seconds is likely to trip bot detection")
     calibration = chk.section("calibration", required=False)
     if calibration is not None:
         chk.number("calibration.min_tours", calibration.get("min_tours"), low=1, whole=True, optional=True)
+
+
+REFRESH_DEFAULTS = {"full_sweep_every_days": 7, "recheck_tour_after_days": 2, "recheck_watch_after_days": 4,
+                    "max_rechecks_per_run": 4, "delist_after_missed_sweeps": 2}
+
+
+def _check_refresh(chk):
+    refresh = chk.section("refresh", required=False) or {}
+    chk.raw["refresh"] = refresh
+    for name, default in REFRESH_DEFAULTS.items():
+        refresh.setdefault(name, default)
+        chk.number("refresh." + name, refresh[name], low=0 if name == "max_rechecks_per_run" else 1,
+                   whole=name in ("max_rechecks_per_run", "delist_after_missed_sweeps"))
+    for name in refresh:
+        if name not in REFRESH_DEFAULTS:
+            chk.err("refresh." + str(name), "is not a setting. Expected %s" % ", ".join(sorted(REFRESH_DEFAULTS)))
 
 
 def _cross_checks(chk):
@@ -510,12 +549,30 @@ def _cross_checks(chk):
         chk.err("search.commute_anchor.address", "the scout measures commute time, so it needs an address")
     if "income_multiple_have" in used and not (raw.get("profile") or {}).get("annual_income"):
         chk.err("profile.annual_income", "the gate checks income_multiple_have, so this cannot be empty")
+    pages = (raw.get("limits") or {}).get("max_search_pages_per_run")
+    for sid, spec in (search.get("sources") or {}).items():
+        if isinstance(spec, dict) and spec.get("enabled") and is_number(pages):
+            searches = len(spec.get("saved_search_urls") or []) or len(spec.get("subareas") or [])
+            if searches * 2 > pages:
+                chk.warn("limits.max_search_pages_per_run", "%s has %d searches but only %d results pages per run, so a full "
+                         "sweep of it will be slow to finish. Allow at least %d" % (sid, searches, pages, searches * 2))
     for rule in rules:
         if rule.get("field") in ("rent_gross", "rent_net_effective", "monthly_all_in") \
                 and rule.get("op") in ("lte", "lt") and is_number(rule.get("value")) \
                 and is_number(search.get("price_max")) and search["price_max"] < rule["value"]:
             chk.warn("search.price_max", "is below the gate's rent ceiling of %s, so the sweep will miss "
                                          "listings you would accept" % money(rule["value"]))
+
+
+def _guard(chk, section, check):
+    """Run one section's checks. A shape nobody anticipated is still a plain-English
+    error about that section, and the other sections still get checked."""
+    try:
+        return check(chk)
+    except (TypeError, AttributeError, KeyError, ValueError, IndexError) as exc:
+        chk.err(section, "has an unexpected shape, so it could not be checked (%s). Compare it with "
+                         "configs/nyc.template.yaml" % exc)
+        return None
 
 
 def validate(raw, path="config"):
@@ -532,17 +589,13 @@ def validate(raw, path="config"):
                               "or set `enabled: false` on a rule or source you do not want.")
     if raw.get("version") != 1:
         chk.err("version", "should be 1")
-    registry = build_registry(_check_custom_fields(chk))
-    _check_profile(chk)
-    _check_search(chk)
-    _check_prefilters(chk)
-    _check_gate(chk, registry)
-    _check_capture(chk, registry)
-    _check_rubric(chk)
-    _check_verdicts(chk)
-    _check_risk_costs(chk)
-    _check_limits(chk)
-    _cross_checks(chk)
+    registry = build_registry(_guard(chk, "custom_fields", _check_custom_fields) or [])
+    for name, check in (("profile", _check_profile), ("search", _check_search), ("prefilters", _check_prefilters),
+                        ("gate", lambda c: _check_gate(c, registry)), ("capture", lambda c: _check_capture(c, registry)),
+                        ("rubric", _check_rubric), ("verdicts", _check_verdicts), ("risk", _check_risk_costs),
+                        ("limits", _check_limits), ("refresh", _check_refresh)):
+        _guard(chk, name, check)
+    _guard(chk, "config", _cross_checks)
     if chk.errors:
         raise ScoutError(chk.errors, hint="Fix these in %s and run `python3 -m scout validate` again." % path)
     return Config(raw, path), chk.warnings

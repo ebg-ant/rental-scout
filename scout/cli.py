@@ -7,8 +7,9 @@ import argparse
 import json
 import os
 import sys
+import traceback
 
-from . import calibrate, config, pipeline, report, summary
+from . import calibrate, config, export, pipeline, report, summary
 from .explain import explain
 from .store import opened
 from .util import ScoutError, read_json_input
@@ -27,8 +28,9 @@ def _write(folder, name, text):
 
 
 def _write_outputs(cfg, store):
-    """report.html plus a dated summary, both regenerated from the store."""
-    paths = {"report": _write(store.dir, "report.html", report.build(cfg, store))}
+    """report.html, shortlist.csv and a dated summary, all regenerated from the store."""
+    paths = {"report": _write(store.dir, "report.html", report.build(cfg, store)),
+             "spreadsheet": _write(store.dir, "shortlist.csv", export.to_csv(cfg, store))}
     runs = store.data["runs"]
     if runs:
         text = summary.build(store)
@@ -65,7 +67,8 @@ def _with_store(args, action, write=True):
 
 
 def cmd_start(args):
-    _, warnings, result = _with_store(args, lambda cfg, store: pipeline.start(cfg, store, sweep=not args.no_sweep))
+    _, warnings, result = _with_store(args, lambda cfg, store: pipeline.start(cfg, store, sweep=not args.no_sweep,
+                                                                          full=args.full))
     if warnings:
         result["config_warnings"] = warnings
     result["do"] = "Run `python3 -m scout next` and do what it says. Repeat until it says finish."
@@ -94,7 +97,7 @@ def cmd_finish(args):
         return run, _write_outputs(cfg, store), summary.build(store)
     run, paths, text = _with_store(args, action)[2]
     print(text)
-    print("---\nReport: %s\nSummary: %s" % (paths["report"], paths["summary"]))
+    print("---\nReport: %s\nSpreadsheet: %s\nSummary: %s" % (paths["report"], paths["spreadsheet"], paths["summary"]))
 
 
 def cmd_report(args):
@@ -121,6 +124,10 @@ def cmd_refresh(args):
     result["do"] = "Run `python3 -m scout start --no-sweep`, then loop on `python3 -m scout next` as usual." \
         if result["count"] else "Nothing to refresh."
     _print(result)
+
+
+def cmd_overview(args):
+    _print(_with_store(args, pipeline.overview, write=False)[2])
 
 
 def cmd_find(args):
@@ -168,8 +175,9 @@ def build_parser():
     add("validate", cmd_validate, "check the config and read it back in plain English") \
         .add_argument("--json", action="store_true")
     add("fields", cmd_fields, "list every fact the scout can record or gate on")
-    add("start", cmd_start, "open a run, or resume an interrupted one") \
-        .add_argument("--no-sweep", action="store_true", help="skip discovery; only judge listings handed in by hand")
+    sub = add("start", cmd_start, "open a run, or resume an interrupted one")
+    sub.add_argument("--no-sweep", action="store_true", help="no search for new listings; only what is queued or handed in")
+    sub.add_argument("--full", action="store_true", help="read every results page on every site, not just the newest")
     add("next", cmd_next, "what to do now")
     for name, function, text in (("ingest", pipeline.ingest, "hand in search cards from a sweep"),
                                  ("enrich", pipeline.enrich, "hand in facts from a listing page"),
@@ -179,13 +187,14 @@ def build_parser():
     sub.add_argument("source")
     sub.add_argument("what", help="what you saw, e.g. 'press and hold CAPTCHA'")
     add("finish", cmd_finish, "close the run and write the report and summary")
-    add("report", cmd_report, "rebuild report.html and the latest summary")
+    add("report", cmd_report, "rebuild report.html, shortlist.csv and the latest summary")
     add("summary", cmd_summary, "print the latest summary")
     add("rejudge", cmd_rejudge, "re-apply the config to everything already seen (no browser)")
     sub = add("refresh", cmd_refresh, "queue listings for a fresh look (default: every live TOUR and WATCH)")
     sub.add_argument("ids", nargs="*", help="specific listing ids")
     sub.add_argument("--all", action="store_true", help="every live listing opened before, not just the shortlist")
     sub.add_argument("--older-than-days", type=float, default=0, help="skip listings read more recently than this")
+    add("overview", cmd_overview, "where things stand: counts, queues, freshness, sweep coverage")
     add("find", cmd_find, "look up a listing id by address, title or URL").add_argument("text")
     add("show", cmd_show, "print one listing's full record").add_argument("id")
     sub = add("status", cmd_status, "set a listing's status")
@@ -210,6 +219,12 @@ def main(argv=None):
         return 2
     except BrokenPipeError:
         return 0
+    except Exception as exc:  # a bug, or input of a shape nobody foresaw: still answer in JSON
+        traceback.print_exc(file=sys.stderr)
+        _print({"ok": False, "errors": ["Internal error: %s: %s" % (type(exc).__name__, exc)],
+                "hint": "Nothing was saved. Check the payload against agent/examples/. If it looks right, this is a "
+                        "bug in the scout: tell the user and carry on with `python3 -m scout next`."})
+        return 3
 
 
 if __name__ == "__main__":

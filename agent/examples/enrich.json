@@ -2,7 +2,7 @@
   "id": "streeteasy-demo-88-berry-street-6c",
   "source": "streeteasy",
   "url": "https://streeteasy.com/building/demo-88-berry-street/6c",
-  "raw_text": "Modern one bedroom in a full-service Williamsburg elevator building. One month free on a 13-month lease. Gross rent $4,300. Washer and dryer in unit, dishwasher, central air. Private balcony. Doorman and package room. West-facing over Berry Street. Pets upon approval.",
+  "raw_text": "Modern one bedroom in a full-service Williamsburg elevator building. One month free on a 13-month lease. Gross rent $4,300. Washer and dryer in unit, dishwasher, central air. Private balcony. Doorman and package room. West-facing over Berry Street. Ask the leasing office about our pet policy.",
   "facts": {
     "rent_advertised_is": "gross",
     "free_months": 1,
@@ -32,10 +32,11 @@
     "doorman": true
   },
   "unknown": {
-    "cats": "page only says 'Pets upon approval'; no cat policy stated",
+    "cats": "page only says to ask the leasing office; no pet policy stated",
     "sqft": "not stated on the page",
     "rent_stabilized": "not stated on the page",
-    "income_multiple_required": "not stated on the page"
+    "income_multiple_required": "not stated on the page",
+    "listed_date": "not stated on the page"
   },
   "provenance": {
     "rent_advertised_is": {
@@ -64,10 +65,12 @@
       "where": "listing page"
     },
     "flood_zone": {
-      "where": "listing page"
+      "where": "FEMA flood map for the address",
+      "url": "https://www.google.com/maps/search/?api=1&query=demo"
     },
     "noise_sources": {
-      "where": "listing page"
+      "where": "Google Maps satellite and Street View, one block around",
+      "url": "https://www.google.com/maps/search/?api=1&query=demo"
     },
     "photos_recency": {
       "where": "listing page"
@@ -101,7 +104,8 @@
       "where": "listing page"
     },
     "commute_minutes": {
-      "where": "listing page"
+      "where": "Google Maps transit directions",
+      "url": "https://www.google.com/maps/search/?api=1&query=demo"
     },
     "available_date": {
       "where": "listing page"

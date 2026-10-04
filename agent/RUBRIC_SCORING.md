@@ -6,9 +6,14 @@ get here.
 
 ## How to score
 
-1. For each criterion, gather the evidence first. Then find the anchor that describes what you saw
-   and use its number. Between two anchors, use the number between them. Anchors beat instinct: the
-   point is that the same listing gets the same score tomorrow.
+1. For each criterion, gather the evidence first, then place it on the anchors like this:
+   - An anchor is met only if **every** part of it is met. Parts joined by "or" need just one.
+   - Start from the highest anchor that is fully met. That is the score.
+   - Add 1 if at least half the parts of the next anchor up are also met.
+   - A part that begins "With two or more bedrooms" does not apply to a studio or one-bedroom: skip it.
+   - A part you could not check counts as not met. If that is most of the criterion, score `null`.
+
+   Anchors beat instinct: the point is that the same listing gets the same score tomorrow.
 2. Score what is there, not what the listing claims. "Sun-drenched" is not evidence; a south-facing
    window over a low roof on the satellite view is.
 3. If you cannot verify a criterion, score it `null` and say what you could not check and why. An
@@ -45,6 +50,9 @@ get here.
 ```
 
 A full working example is `agent/examples/score.json`.
+
+The task carries `listing_text` (the saved page text, to quote from) and `unknown` (facts enrich could not
+find), so you can score after a dropped session without re-reading the page.
 
 ## Rules the command enforces
 

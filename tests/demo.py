@@ -1,7 +1,11 @@
-"""Build a demo report from the made-up listings:  python3 -m tests.demo [folder]"""
+"""Build a demo report from the made-up listings:  python3 -m tests.demo [folder] [--inline]
+
+--inline embeds the placeholder pictures in report.html, so the one file can be shared.
+"""
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import os
 import shutil
@@ -34,12 +38,20 @@ PLAN_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300">
 </svg>"""
 
 
-def _placeholder_images(store):
+def _save(store, inline, rec_id, name, art):
+    if inline:
+        return "data:image/svg+xml;base64," + base64.b64encode(art.encode("utf-8")).decode("ascii")
+    folder = os.path.join(store.dir, "photos", rec_id)
+    os.makedirs(folder, exist_ok=True)
+    with open(os.path.join(folder, name), "w", encoding="utf-8") as handle:
+        handle.write(art)
+    return "photos/%s/%s" % (rec_id, name)
+
+
+def _placeholder_images(store, inline=False):
     """The invented listings have no real photos, so draw some next to the report."""
     for rec in store.listings.values():
         seed = int(hashlib.sha256(rec["id"].encode("utf-8")).hexdigest()[:6], 16)
-        folder = os.path.join(store.dir, "photos", rec["id"])
-        os.makedirs(folder, exist_ok=True)
         count = len(rec.get("photos") or []) or (1 if rec["card"].get("first_photo") else 0)
         local = []
         for n in range(1, count + 1):
@@ -47,34 +59,54 @@ def _placeholder_images(store):
             art = ROOM_SVG.format(hue=(seed + n * 23) % 360, wall=58 + (n * 7) % 20, floor=20 + (seed + n) % 25,
                                   sky=62 + (seed + n * 5) % 24, wx=wx, wm=wx + 55, wr=wx + 110, sl=wx - 60, sr=wx + 170,
                                   n=n, room=ROOMS[(n - 1) % len(ROOMS)])
-            with open(os.path.join(folder, "%d.svg" % n), "w", encoding="utf-8") as handle:
-                handle.write(art)
-            local.append({"url": "photos/%s/%d.svg" % (rec["id"], n), "caption": ROOMS[(n - 1) % len(ROOMS)]})
+            local.append({"url": _save(store, inline, rec["id"], "%d.svg" % n, art), "caption": ROOMS[(n - 1) % len(ROOMS)]})
+        drawn = {}
         if rec.get("photos"):
+            drawn.update(zip([photo["url"] for photo in rec["photos"]], [photo["url"] for photo in local]))
             rec["photos"] = local
         elif local:
             rec["card"]["first_photo"] = local[0]["url"]
         if rec.get("floor_plans"):
-            with open(os.path.join(folder, "plan.svg"), "w", encoding="utf-8") as handle:
-                handle.write(PLAN_SVG)
-            rec["floor_plans"] = [{"url": "photos/%s/plan.svg" % rec["id"]}]
+            plan = _save(store, inline, rec["id"], "plan.svg", PLAN_SVG)
+            drawn[rec["floor_plans"][0]["url"]] = plan
+            rec["floor_plans"] = [{"url": plan}]
+        for entry in ((rec.get("rubric") or {}).get("scores") or {}).values():
+            for item in entry.get("evidence") or []:     # the pictures each score cites
+                if item.get("urls"):
+                    item["urls"] = [drawn.get(url, url) for url in item["urls"]]
 
 
-def build(folder, days=2):
-    shutil.rmtree(folder, ignore_errors=True)
+MARKER = ".rental-scout-demo"
+
+
+def _clear(folder):
+    """Empty the target, but only if it is new, empty, or a demo this script built before.
+    Anything else (a real data folder, a home directory, /tmp) is refused."""
+    if os.path.isdir(folder) and os.listdir(folder):
+        if not os.path.exists(os.path.join(folder, MARKER)):
+            raise SystemExit("%s is not empty and was not made by this demo; choose a new folder" % folder)
+        shutil.rmtree(folder)
+    os.makedirs(folder, exist_ok=True)
+    with open(os.path.join(folder, MARKER), "w") as handle:
+        handle.write("Made by python3 -m tests.demo. Safe to delete.\n")
+
+
+def build(folder, days=2, inline=False):
+    _clear(folder)
     clock = Clock("2026-10-05T13:00:00")
     agent = ScriptedAgent(EXAMPLE, folder, clock)
     for index, day in enumerate([nyc_demo.DAY1, nyc_demo.DAY2, nyc_demo.DAY3][:days]):
         clock.jump_to("2026-10-%02dT13:00:00" % (5 + index))
         agent.run(day)
     with opened(folder) as store:
-        _placeholder_images(store)
+        _placeholder_images(store, inline)
         paths = cli._write_outputs(agent.cfg, store)
         return paths, summary.build(store)
 
 
 if __name__ == "__main__":
-    target = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "data-demo")
-    written, text = build(target)
+    arguments = [a for a in sys.argv[1:] if a != "--inline"]
+    target = arguments[0] if arguments else os.path.join(ROOT, "data-demo")
+    written, text = build(target, inline="--inline" in sys.argv)
     print(text)
     print(written)

@@ -14,7 +14,7 @@ version: 1
 # ---------------------------------------------------------------------------
 profile:
   name: Sam (example)
-  move_in_earliest: null        # YYYY-MM-DD, or null
+  move_in_earliest: 2026-11-15        # YYYY-MM-DD, or null. Listings available sooner get a note about paying early
   move_in_latest: 2026-12-15          # YYYY-MM-DD. Listings available after this miss the `available` rule
   annual_income: 160000           # household, before tax. Optional; only used to warn about the 40x rule
   has_guarantor: false
@@ -71,7 +71,7 @@ search:
       label: StreetEasy
       enabled: true
       url_style: streeteasy
-      # Build the search on streeteasy.com, then paste the address-bar URL here.
+      # Build the search on streeteasy.com, then paste the address-bar URL here, in "quotes".
       # It should look like https://streeteasy.com/for-rent/nyc/price:-4000%7Carea:...%7Cbeds:1
       saved_search_urls: ["https://streeteasy.com/for-rent/nyc/price:2800-4400%7Cbeds%3E=1"]
       max_pages: 8
@@ -79,7 +79,7 @@ search:
       label: Zillow
       enabled: true
       url_style: zillow
-      # Build the search on zillow.com (For Rent), then paste the long address-bar URL
+      # Build the search on zillow.com (For Rent), then paste the long address-bar URL, in "quotes"
       # (it contains searchQueryState=...).
       saved_search_urls: ["https://www.zillow.com/new-york-ny/rentals/?searchQueryState=%7B%22filterState%22%3A%7B%22fr%22%3A%7B%22value%22%3Atrue%7D%2C%22beds%22%3A%7B%22min%22%3A1%7D%7D%7D"]
       max_pages: 6              # Zillow stops showing new results after about 6 pages
@@ -162,7 +162,8 @@ prefilters:
 # ---------------------------------------------------------------------------
 # The gate: must-haves, checked by code against facts read from the listing page.
 #
-#   op           at_most, at_least, is, is_not, in, not_in
+#   op           at_most, at_least, is, is_not, in, not_in (for dates: on_or_before, on_or_after)
+#   value        what to compare with; or value_from, to take it from elsewhere in this file (profile.move_in_latest)
 #   on_unknown   fail = treat as a miss | pass = let it through | flag = keep it, but it cannot be a TOUR yet
 #   dealbreaker  true = one miss is an instant PASS
 #   trust_card   true = the search card is reliable for this, so a clear miss skips opening the page
@@ -201,9 +202,9 @@ gate:
       label: Cats
       field: cats
       op: is
-      value: allowed            # "case by case" is not a yes
+      value: allowed            # "case by case" or "upon approval" is not a yes
       on_unknown: flag
-      dealbreaker: true
+      dealbreaker: true         # false = "upon approval" is a soft miss: kept on WATCH for you to ask about
     - id: dogs
       enabled: false            # true if you have a dog
       label: Dogs
@@ -285,6 +286,7 @@ capture:
     - outdoor
     - photo_count
     - photos_recency
+    - listed_date
 
 # ---------------------------------------------------------------------------
 # The rubric: judgment calls, scored 0-10 by the agent for listings that pass the gate.
@@ -320,9 +322,9 @@ rubric:
       fit a sofa and a table?
     evidence_required: [photos, floor_plan]
     anchors:
-      10: Every bedroom fits a queen with walking room and has a window and closet; bedrooms are separated by the living space; living room fits a sofa and a dining table.
-      8: Every bedroom is a true bedroom with window and closet, but they share a wall or one is clearly smaller.
-      6: Works with one compromise. One bedroom fits only a full bed, or closets are thin, or the only path to the bath crosses the living room.
+      10: Every bedroom fits a queen with walking room and has a window and a closet; living room fits a sofa and a dining table; there is an entry hall or a second closet outside the bedroom. With two or more bedrooms, they do not share a wall.
+      8: Every bedroom fits a queen and has a window and a closet; living room fits a sofa and a small table. With two or more bedrooms, they share a wall or one is clearly smaller.
+      6: Works with one compromise. A bedroom fits only a full bed, or has no closet, or the living room fits a sofa but no table, or the only path to the bath crosses a bedroom.
       4: Railroad layout where one bedroom is the route to another, or a living room too small for both a sofa and a table.
       2: The bedroom count depends on a flex or pressurized wall, or a "convertible", "junior" or office space.
       0: A room sold as a bedroom has no window or cannot fit a full bed.
@@ -335,11 +337,11 @@ rubric:
       relative to building size; management reputation if reviews are easy to find.
     evidence_required: [text, records]
     anchors:
-      10: Elevator or at most one flight; doorman or secure package room; well-kept common areas; few or no open HPD violations for its size.
-      8: Elevator or at most two flights; secure entry and some package solution; clean common areas; only minor (class A) open violations.
-      6: Third-floor walk-up or a dated elevator building; no package handling; tidy; a handful of open violations, none class C.
-      4: Fourth-floor walk-up; or visible neglect in halls or facade; or a pattern of heat, hot water or pest complaints in the last two years.
-      2: Fifth floor or higher walk-up; or many open class C (immediately hazardous) violations; or consistently bad management reviews.
+      10: Elevator, or first or second floor; doorman or secure package room; well-kept common areas; no open HPD violations above class A.
+      8: Elevator, or third floor or lower; secure entry (intercom or virtual doorman); clean common areas; only class A open violations.
+      6: Fourth floor or lower without an elevator, or a dated elevator building; tidy common areas; a handful of open violations, none class C.
+      4: Fifth-floor walk-up; or visible neglect in halls or facade; or a pattern of heat, hot water or pest complaints in the last two years.
+      2: Sixth floor or higher walk-up; or many open class C (immediately hazardous) violations; or consistently bad management reviews.
   - id: commute
     label: Commute and transit
     weight: 0.15
@@ -404,6 +406,7 @@ risk:
   reference_rents: {}           # typical rent by bedrooms, e.g. {0: 3200, 1: 4000}. Empty = learn from listings seen
   min_comps: 8                  # listings needed before the learned figure is trusted
   low_flags_to_pass: 2
+  long_listed_days: 45          # note listings that have sat on the market this long (needs listed_date)
   disable: []                   # check ids to switch off
   scam_phrases:
     - out of the country
@@ -438,12 +441,26 @@ costs:
 # Limits: how gently the scout treats the sites
 # ---------------------------------------------------------------------------
 limits:
-  max_listings_per_run: 10      # listing pages opened per run
+  max_listings_per_run: 10      # listing pages opened per run, re-checks included
+  max_search_pages_per_run: 6   # results pages read per site per run; a long full sweep carries over to the next run
   throttle_seconds: 20          # minimum wait between pages on one site
   max_runtime_minutes: 60
-  delist_after_missed_sweeps: 2 # full sweeps a listing must be missing from before it is marked off-market
-  min_band_width: 100           # narrowest price band, in dollars, when splitting a capped search
-  recheck_after_days: 3         # re-open a TOUR or WATCH listing that no sweep has seen for this long
+  min_band_width: 100           # narrowest price band, in dollars, when splitting a search the site caps
+
+# ---------------------------------------------------------------------------
+# Refresh: how the scout keeps what it knows up to date
+#
+# Most days it reads each search newest-first and stops at the first page with nothing new.
+# Now and then it reads every page, which is how it notices price changes on older listings and
+# listings that have gone. Shortlisted listings are also re-opened on a timer.
+# ---------------------------------------------------------------------------
+refresh:
+  full_sweep_every_days: 7      # also happens on the first run, and whenever the searches or price range change
+  recheck_tour_after_days: 2    # re-open a TOUR nobody has seen in results or read for this long
+  recheck_watch_after_days: 4   # same for a WATCH
+  max_rechecks_per_run: 4       # so re-checks never crowd out new listings
+  delist_after_missed_sweeps: 2 # full sweeps a PASS listing must be missing from before it is marked off-market
+                                # (a missing TOUR or WATCH gets its page opened instead)
 
 calibration:
   min_tours: 10                 # tours to record before `python3 -m scout calibrate` offers suggestions

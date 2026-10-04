@@ -7,9 +7,7 @@ typo in a config or in an agent's JSON is an error, not a silently ignored key.
 
 from __future__ import annotations
 
-import re
-
-from .util import is_number
+from .util import is_number, is_real_date
 
 NUMBER, BOOL, ENUM, TEXT, DATE, LIST = "number", "bool", "enum", "text", "date", "list"
 
@@ -59,7 +57,7 @@ BASE_FIELDS = {
     "commute_minutes": Field(NUMBER, "Door-to-door minutes to the commute anchor by the configured mode"),
     "commute_transfers": Field(NUMBER, "Transfers on that route"),
     "walk_to_station_minutes": Field(NUMBER, "Walking minutes to the nearest useful station"),
-    "transit_lines": Field(LIST, "Lines at that station"),
+    "transit_lines": Field(LIST, "Lines the route uses, plus any others the map shows at that station"),
     # Building
     "floor": Field(NUMBER, "Floor the unit is on; ground floor is 1"),
     "level": Field(ENUM, "Where the unit sits relative to the street", ["basement", "garden", "ground", "upper"]),
@@ -111,8 +109,6 @@ DERIVED_FIELDS = {
                                   derived_from=RENT_INPUTS),
 }
 
-_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-
 
 def build_registry(custom_fields=None):
     """All known fields, including any `custom_fields` from the config."""
@@ -136,8 +132,8 @@ def check_value(name, field, value):
         return "%s must be one of %s, got %r" % (name, ", ".join(field.values), value)
     if field.type == TEXT and not isinstance(value, str):
         return "%s must be text, got %r" % (name, value)
-    if field.type == DATE and not (isinstance(value, str) and _DATE_RE.match(value)):
-        return "%s must be a date like 2026-12-01, got %r" % (name, value)
+    if field.type == DATE and not (isinstance(value, str) and is_real_date(value)):
+        return "%s must be a real date like 2026-12-01, got %r" % (name, value)
     if field.type == LIST and not (isinstance(value, list) and all(isinstance(v, str) for v in value)):
         return "%s must be a list of text items, got %r" % (name, value)
     return None

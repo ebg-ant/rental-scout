@@ -25,6 +25,16 @@ SCAM = "craigslist-7900000001"
 NO_ADDRESS = "craigslist-7900000003"
 
 
+def unchanged_since_day_one():
+    """Newest-first searches that return exactly what day 1 found."""
+    found = demo.DAY1["sweeps"]
+    return {"sweeps": {
+        "streeteasy:0:new": {"cards": found["streeteasy:0:2800-4400"]["cards"]},
+        "zillow:0:new": {"cards": found["zillow:0:2800-3600"]["cards"] + found["zillow:0:3601-4400"]["cards"]},
+        "craigslist:0:new": {"cards": found["craigslist:0:2800-4400"]["cards"]},
+        "craigslist:1:new": {"cards": found["craigslist:1:2800-4400"]["cards"]}}}
+
+
 class PipelineCase(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.mkdtemp(prefix="scout-test-")
@@ -40,6 +50,9 @@ class PipelineCase(unittest.TestCase):
         self.clock.jump_to("2026-10-%02dT13:00:00" % (4 + number))
         self.agent.log = []
         return self.agent.run(fixture, **kw)
+
+    def coverage(self):
+        return Store(self.dir).load().data["coverage"]
 
 
 class DayOne(PipelineCase):
@@ -91,7 +104,15 @@ class DayOne(PipelineCase):
     def test_capped_sweep_is_split_and_both_halves_swept(self):
         keys = [task["sweep"] for task in self.agent.tasks("sweep") if task["source"] == "zillow"]
         self.assertEqual(keys, ["zillow:0:2800-4400", "zillow:0:2800-3600", "zillow:0:3601-4400"])
-        self.assertIn("%22min%22%3A3601", self.agent.tasks("sweep")[3]["url"])
+        last = [task for task in self.agent.tasks("sweep") if task["sweep"] == "zillow:0:3601-4400"][0]
+        self.assertIn("%22min%22%3A3601", last["url"])
+
+    def test_first_run_is_a_full_sweep_and_it_finishes(self):
+        self.assertEqual(set(task["mode"] for task in self.agent.tasks("sweep")), set(["full"]))
+        self.assertEqual(self.result["started"]["plan"]["streeteasy"], "full sweep")
+        for source, cover in self.coverage().items():
+            self.assertIsNone(cover["cycle"], source)
+            self.assertTrue(cover["last_full_at"], source)
 
     def test_net_and_gross_are_both_kept(self):
         derived = self.recs[BERRY]["derived"]
@@ -120,9 +141,10 @@ class DayOne(PipelineCase):
 
 
 class LaterDays(PipelineCase):
-    def test_day_two_only_evaluates_new_or_changed(self):
+    def test_day_two_reads_newest_first_and_only_evaluates_new_or_changed(self):
         self.day(1, demo.DAY1)
         result = self.day(2, demo.DAY2)
+        self.assertEqual(set(t["mode"] for t in self.agent.tasks("sweep")), set(["incremental"]))
         self.assertEqual([t["id"] for t in self.agent.tasks("enrich")], [BERRY, NORMAN])
         self.assertEqual([t["why"] for t in self.agent.tasks("enrich")], ["price_changed", "new"])
         self.assertEqual([t["id"] for t in self.agent.tasks("score")], [NORMAN])
@@ -131,7 +153,8 @@ class LaterDays(PipelineCase):
         recs = self.listings()
         self.assertEqual(recs[NORMAN]["verdict"], "TOUR")
         self.assertEqual(recs[BERRY]["verdict"], "TOUR")   # cats now stated, old scores reused
-        self.assertEqual([p["rent"] for p in recs[BERRY]["price_history"]], [4300, 4150])
+        self.assertEqual([(p["rent"], p["where"]) for p in recs[BERRY]["price_history"]],
+                         [(4300, "card"), (4300, "page"), (4150, "card"), (4150, "page")])
         self.assertIn({"event": "verdict", "detail": "WATCH -> TOUR"},
                       [{"event": h["event"], "detail": h["detail"]} for h in recs[BERRY]["history"]])
 
@@ -139,8 +162,33 @@ class LaterDays(PipelineCase):
         self.day(1, demo.DAY1)
         self.day(2, demo.DAY2)
         rec = self.listings()[LIC]
-        self.assertEqual(rec["facts"]["rent_advertised"], 3450)
         self.assertEqual((rec["verdict"], rec["stage"]), ("PASS", "done"))
+        self.assertEqual(rec["sources"][0]["rent"], 3450)            # the new figure is on record
+        self.assertEqual(rec["facts"]["rent_advertised"], 3600)      # but facts stay what the page said
+
+    def test_price_drop_on_a_listing_that_failed_only_on_rent_reopens_it(self):
+        self.agent.cfg = make_config(lambda raw: rule(raw, "rent").update(value=3500))
+        self.day(1, demo.DAY1)
+        self.assertIn("Rent", self.listings()[E7]["verdict_reason"])
+        cheaper = {"sweeps": {"streeteasy:0:new": {"cards": [
+            dict(demo.DAY1["sweeps"]["streeteasy:0:2800-4400"]["cards"][0], rent=3400)]}},
+            "pages": {E7: copy.deepcopy(demo.DAY1["pages"][E7])}, "scores": demo.DAY1["scores"]}
+        cheaper["pages"][E7]["facts"]["rent_advertised"] = 3400
+        self.day(2, cheaper)
+        self.assertEqual([t["why"] for t in self.agent.tasks("enrich")], ["price_changed"])
+        self.assertEqual(self.listings()[E7]["verdict"], "WATCH")
+
+    def test_card_and_page_rents_that_differ_are_not_a_daily_price_change(self):
+        page = copy.deepcopy(demo.DAY1["pages"][ASTORIA])
+        page["facts"]["rent_advertised"] = 3250        # the card says "from $3,100"
+        day1 = dict(demo.DAY1, pages=dict(demo.DAY1["pages"], **{ASTORIA: page}))
+        self.day(1, day1)
+        for number in (2, 3, 4):
+            result = self.day(number, unchanged_since_day_one())
+            self.assertEqual(result["finished"]["counts"]["price_changed"], 0, number)
+            self.assertEqual(self.agent.tasks("enrich"), [], number)
+        self.assertEqual([(p["rent"], p["where"]) for p in self.listings()[ASTORIA]["price_history"]],
+                         [(3100, "card"), (3250, "page")])
 
     def test_repost_joins_the_original(self):
         self.day(1, demo.DAY1)
@@ -155,42 +203,318 @@ class LaterDays(PipelineCase):
         self.assertEqual(len([t for t in self.agent.tasks("sweep") if t["source"] == "zillow"]), 1)
         self.assertEqual(result["finished"]["blocked"]["zillow"]["what"], "press-and-hold CAPTCHA")
         self.assertIn("did not retry", summary.build(Store(self.dir).load()))
-        # A blocked site proves nothing about what is still listed there.
-        self.assertEqual(self.listings()[ASTORIA]["sources"][0]["missed_sweeps"], 0)
 
-    def test_delisted_after_two_full_sweeps_without_it(self):
+    def test_quiet_day_stops_at_the_first_page_with_nothing_new(self):
         self.day(1, demo.DAY1)
         self.day(2, demo.DAY2)
-        self.assertIsNone(self.listings()[FRANKLIN]["delisted_at"])
-        result = self.day(3, demo.DAY3)
-        self.assertEqual(result["finished"]["delisted"], [FRANKLIN])
-        self.assertEqual(self.listings()[FRANKLIN]["status"], "delisted")
+        self.day(3, demo.DAY3)
+        streeteasy = [t for t in self.agent.tasks("sweep") if t["source"] == "streeteasy"]
+        self.assertEqual([t["page"] for t in streeteasy], [1])      # the fixture has a second page; it is never read
         self.assertEqual(self.agent.tasks("enrich"), [])
 
+    def test_newest_first_sweeps_never_delist_by_absence(self):
+        self.day(1, demo.DAY1)
+        for number in (2, 3):
+            self.day(number, {"sweeps": {}})     # every search comes back empty
+        for rec in self.listings().values():
+            self.assertIsNone(rec["delisted_at"], rec["id"])
+            self.assertEqual([e["missed_sweeps"] for e in rec["sources"]], [0] * len(rec["sources"]))
+
+
+class FullSweepCycle(PipelineCase):
+    def weeks(self):
+        self.day(1, demo.DAY1)
+        self.day(2, demo.DAY2)
+        self.day(3, demo.DAY3)
+        return self.day(8, demo.WEEK2)
+
+    def test_full_sweep_comes_round_after_a_week(self):
+        result = self.weeks()
+        self.assertEqual(set(t["mode"] for t in self.agent.tasks("sweep")), set(["full"]))
+        self.assertEqual(result["started"]["plan"]["zillow"], "full sweep")
+
+    def test_missing_shortlisted_listing_gets_its_page_opened_not_dropped(self):
+        result = self.weeks()
+        franklin = [t for t in self.agent.tasks("enrich") if t["id"] == FRANKLIN]
+        self.assertEqual([t["why"] for t in franklin], ["recheck"])
+        self.assertEqual(self.listings()[FRANKLIN]["status"], "delisted")     # the page really was gone
+        self.assertIn(FRANKLIN, result["finished"]["delisted"])
+        self.assertIn("150 Franklin Street #2R, Brooklyn, NY 11222: off the market (was WATCH)",
+                      summary.build(Store(self.dir).load()))
+
+    def test_missing_pass_listing_is_dropped_after_two_full_sweeps(self):
+        self.weeks()
+        rec = self.listings()[BROOME]
+        self.assertEqual((rec["sources"][0]["missed_sweeps"], rec["delisted_at"]), (1, None))
+        result = self.day(15, demo.WEEK2)
+        self.assertIn(BROOME, result["finished"]["delisted"])
+        self.assertEqual(self.listings()[BROOME]["status"], "delisted")
+        self.assertNotIn(BROOME, [t["id"] for t in self.agent.tasks("enrich")])   # no browser time on a PASS
+
+    def test_listings_the_sweep_just_saw_are_not_rechecked(self):
+        self.weeks()
+        self.assertEqual([t["id"] for t in self.agent.tasks("enrich")], [FRANKLIN])
+
     def test_relisting_brings_it_back(self):
-        for number, fixture in ((1, demo.DAY1), (2, demo.DAY2), (3, demo.DAY3)):
-            self.day(number, fixture)
-        day4 = copy.deepcopy(demo.DAY3)
-        day4["sweeps"]["streeteasy:0:2800-4400"]["cards"].append(demo.DAY1["sweeps"]["streeteasy:0:2800-4400"]["cards"][5])
-        day4["pages"][FRANKLIN] = demo.DAY1["pages"][FRANKLIN]
-        result = self.day(4, day4)
+        self.weeks()
+        back = copy.deepcopy(demo.DAY3)
+        back["sweeps"]["streeteasy:0:new"] = {"cards": [demo.DAY1["sweeps"]["streeteasy:0:2800-4400"]["cards"][5]]}
+        back["pages"][FRANKLIN] = demo.DAY1["pages"][FRANKLIN]
+        result = self.day(9, back)
         self.assertEqual(result["finished"]["counts"]["relisted"], 1)
         rec = self.listings()[FRANKLIN]
         self.assertEqual((rec["status"], rec["delisted_at"], rec["verdict"]), ("active", None, "WATCH"))
         self.assertEqual([t["why"] for t in self.agent.tasks("enrich")], ["relisted"])
 
-    def test_shortlisted_listing_unseen_for_days_is_rechecked(self):
+    def test_pasted_listing_outside_the_saved_search_is_never_delisted_by_absence(self):
         self.day(1, demo.DAY1)
-        quiet = {"sweeps": dict((key, {"cards": [], "stopped_early": True}) for key in (
-            "streeteasy:0:2800-4400", "zillow:0:2800-4400", "craigslist:0:2800-4400", "craigslist:1:2800-4400",
-            "craigslist:2:2800-4400")), "pages": dict((i, {"id": i, "gone": True}) for i in self.listings())}
-        self.day(2, quiet)
-        self.assertEqual(self.agent.tasks("enrich"), [])     # one day is too soon
-        result = self.day(5, quiet)
-        self.assertEqual(set(t["why"] for t in self.agent.tasks("enrich")), set(["recheck"]))
-        self.assertEqual(len(self.agent.tasks("enrich")), 5)  # the five WATCH listings, nothing else
-        self.assertEqual(result["finished"]["delisted"], [])  # partial sweeps never delist by absence
-        self.assertEqual(self.listings()[E7]["status"], "delisted")  # the page itself was gone
+        self.clock.jump_to("2026-10-05T20:00:00")
+        self.agent.call(pipeline.start, False)
+        self.agent.call(pipeline.ingest, {"source": "manual", "cards": [
+            {"url": demo.SE % "9-outside-the-search/1", "address": "9 Elsewhere Street #1", "rent": 3000, "beds": 1}]})
+        self.agent.call(pipeline.finish)
+        pasted = "streeteasy-demo-9-outside-the-search-1"
+        self.assertFalse(self.listings()[pasted]["sources"][0]["swept"])
+        gone = {"id": pasted, "gone": False}
+        for number in (8, 15, 22):
+            self.agent.cfg = make_config(lambda raw: raw["limits"].update(max_listings_per_run=1))
+            self.clock.jump_to("2026-10-%02dT13:00:00" % (4 + number))
+            self.agent.call(pipeline.start)
+            while True:
+                task = self.agent.call(pipeline.next_task)
+                if task["task"] != "sweep":
+                    break
+                self.agent.call(pipeline.ingest, self.agent.results_page(demo.WEEK2, task))
+            self.agent.call(pipeline.finish)
+        rec = self.listings()[pasted]
+        self.assertEqual((rec["delisted_at"], rec["sources"][0]["missed_sweeps"]), (None, 0), gone)
+
+    def test_changing_the_search_forces_a_new_full_sweep(self):
+        self.day(1, demo.DAY1)
+        self.agent.cfg = make_config(lambda raw: raw["search"].update(price_max=4600))
+        self.clock.jump_to("2026-10-06T13:00:00")
+        self.assertEqual(self.agent.call(pipeline.start)["plan"]["streeteasy"], "full sweep")
+        self.assertEqual(self.agent.call(pipeline.next_task)["sweep"], "streeteasy:0:2800-4600")
+
+    def test_full_can_be_forced(self):
+        self.day(1, demo.DAY1)
+        self.clock.jump_to("2026-10-06T13:00:00")
+        started = self.agent.call(lambda cfg, store: pipeline.start(cfg, store, full=True))
+        self.assertEqual(set(started["plan"].values()), set(["full sweep"]))
+
+    def test_repost_seen_by_the_sweep_keeps_the_home_alive(self):
+        self.weeks()
+        rec = self.listings()[NO_ADDRESS]
+        self.assertEqual(dict((e["source_id"], e["missed_sweeps"]) for e in rec["sources"]),
+                         {"7900000003": 1, "7900000099": 0})
+        self.assertEqual((rec["stage"], rec["delisted_at"]), ("done", None))
+
+    def test_blocked_full_sweep_carries_over_and_proves_nothing(self):
+        self.day(1, demo.DAY1)
+        self.day(2, demo.DAY2)
+        self.day(8, dict(demo.WEEK2, blocks={"streeteasy": "access denied"}))
+        self.assertTrue(self.coverage()["streeteasy"]["cycle"])
+        self.assertEqual(self.listings()[BROOME]["sources"][0]["missed_sweeps"], 0)
+        result = self.day(9, demo.WEEK2)
+        self.assertEqual(result["started"]["plan"]["streeteasy"], "newest first, then carry on with the full sweep")
+        self.assertIsNone(self.coverage()["streeteasy"]["cycle"])
+        self.assertEqual(self.listings()[BROOME]["sources"][0]["missed_sweeps"], 1)
+
+
+def many_pages(count, per_page=3, start=0):
+    """A long made-up StreetEasy search: `count` pages of listings that fail the card check."""
+    return [[{"url": demo.SE % ("long-%d/%d" % (page, n)), "address": "%d Long Street #%d" % (100 + page, n),
+              "rent": 9000, "beds": 1} for n in range(per_page)] for page in range(start, start + count)]
+
+
+class LongSweeps(PipelineCase):
+    def only_streeteasy(self, **limits):
+        def change(raw):
+            for name in ("zillow", "craigslist"):
+                raw["search"]["sources"][name]["enabled"] = False
+            raw["search"]["sources"]["streeteasy"]["max_pages"] = 50
+            raw["limits"].update(limits)
+        self.agent.cfg = make_config(change)
+
+    def test_long_full_sweep_is_rationed_and_carries_over(self):
+        self.only_streeteasy(max_search_pages_per_run=4)
+        search = {"sweeps": {"streeteasy:0:2800-4400": {"pages": many_pages(10)}, "streeteasy:0:new": {"pages": many_pages(10)}}}
+        result = self.day(1, search)
+        self.assertEqual([t["page"] for t in self.agent.tasks("sweep")], [1, 2, 3, 4])
+        self.assertTrue(result["finished"]["coverage"]["streeteasy"]["full_sweep_in_progress"])
+        self.assertIn("carries on next run", summary.build(Store(self.dir).load()))
+
+        # Each later run: one newest-first page (nothing new), then the full sweep, re-reading the last
+        # page it reached in case listings have shifted across the boundary overnight.
+        expected = {2: [4, 5, 6], 3: [6, 7, 8], 4: [8, 9, 10]}
+        for number in (2, 3, 4):
+            result = self.day(number, search)
+            self.assertEqual([(t["mode"], t["page"]) for t in self.agent.tasks("sweep")],
+                             [("incremental", 1)] + [("full", page) for page in expected[number]], number)
+        self.assertFalse(result["finished"]["coverage"]["streeteasy"]["full_sweep_in_progress"])
+        self.assertEqual(len(self.listings()), 30)
+
+    def test_busy_top_ups_cannot_starve_the_full_sweep(self):
+        """Three boroughs, each with something new every day, used to eat the whole page budget."""
+        def change(raw):
+            for name in ("zillow", "streeteasy"):
+                raw["search"]["sources"][name]["enabled"] = False
+            raw["search"]["sources"]["craigslist"]["max_pages"] = 50
+        self.agent.cfg = make_config(change)
+        post = lambda tag, day, p, n: {"url": demo.CL % (tag, "7%d%04d%02d" % (day, p, n)), "rent": 9000, "beds": 1,
+                                       "title": "%s day %d page %d post %d with a long title" % (tag, day, p, n)}
+        tags = ("mnh", "brk", "que")
+        old = dict((tag, [[post(tag, 0, p, n) for n in range(2)] for p in range(4)]) for tag in tags)
+        left = []
+        for number in range(1, 9):
+            searches = {}
+            for i, tag in enumerate(tags):
+                searches["craigslist:%d:2800-4400" % i] = {"pages": old[tag]}
+                searches["craigslist:%d:new" % i] = {"pages": [[post(tag, number, 0, n) for n in range(2)]] + old[tag]}
+            left.append(self.day(number, {"sweeps": searches})["finished"]["coverage"]["craigslist"]["searches_left"])
+            if not left[-1]:
+                break
+        self.assertEqual(left[-1], 0, left)
+
+    def test_top_up_cut_short_by_the_page_limit_says_so(self):
+        self.only_streeteasy(max_search_pages_per_run=3)
+        self.day(1, {"sweeps": {"streeteasy:0:2800-4400": {"cards": many_pages(1)[0]}}})
+        result = self.day(2, {"sweeps": {"streeteasy:0:new": {"pages": many_pages(9, start=50)}}})
+        self.assertEqual(len(self.agent.tasks("sweep")), 3)
+        self.assertTrue(any("page limit was reached" in note for note in result["finished"]["notes"]), result["finished"]["notes"])
+        self.assertIn("page limit was reached", summary.build(Store(self.dir).load()))
+
+    def test_under_read_sweep_is_not_proof_of_absence(self):
+        self.only_streeteasy()
+        self.day(1, {"sweeps": {"streeteasy:0:2800-4400": {"cards": many_pages(1, per_page=10)[0]}}})
+        for number, search in ((8, {"cards": many_pages(1, per_page=2)[0], "total_results": 10}), (15, {"cards": []})):
+            result = self.day(number, {"sweeps": {"streeteasy:0:2800-4400": search}})
+            self.assertEqual(result["finished"]["delisted"], [])
+            self.assertEqual(set(e["missed_sweeps"] for r in self.listings().values() for e in r["sources"]), set([0]), number)
+        self.assertTrue(any("only 2 cards were read" in note for run in Store(self.dir).load().data["runs"] for note in run["notes"]))
+
+    def test_later_pages_have_their_own_url(self):
+        self.only_streeteasy()
+        self.day(1, {"sweeps": {"streeteasy:0:2800-4400": {"pages": many_pages(3)}}})
+        self.assertTrue(self.agent.tasks("sweep")[2]["url"].endswith("&page=3"))
+
+    def test_manual_style_hands_over_the_users_own_url_and_says_so(self):
+        self.only_streeteasy()
+        self.agent.cfg.sources["streeteasy"]["url_style"] = "manual"
+        self.day(1, {"sweeps": {"streeteasy:0:2800-4400": {"pages": many_pages(2)}}})
+        first, second = self.agent.tasks("sweep")
+        self.assertEqual(first["url"], self.agent.cfg.sources["streeteasy"]["saved_search_urls"][0])
+        self.assertTrue(first["filters"].startswith("NOT in the URL"))
+        self.assertIn("click to the next page", second["reach_page"])
+
+    def test_boroughs_take_turns(self):
+        def change(raw):
+            for name in ("zillow", "streeteasy"):
+                raw["search"]["sources"][name]["enabled"] = False
+            raw["search"]["sources"]["craigslist"]["max_pages"] = 50
+        self.agent.cfg = make_config(change)
+        pages = lambda tag: [[{"url": demo.CL % (tag, "79%06d%02d" % (p, n)), "title": "%s post %d %d long title" % (tag, p, n),
+                               "rent": 9000, "beds": 1} for n in range(2)] for p in range(5)]
+        self.day(1, {"sweeps": dict(("craigslist:%d:2800-4400" % i, {"pages": pages(tag)})
+                                    for i, tag in enumerate(("mnh", "brk", "que")))})
+        tasks = self.agent.tasks("sweep")
+        self.assertEqual([(t["sweep"].split(":")[1], t["page"]) for t in tasks],
+                         [("0", 1), ("0", 2), ("1", 1), ("1", 2), ("2", 1), ("2", 2)])
+        # Consecutive pages, so on a site with only a pager the next page is one click away.
+        self.assertIn("click to the next page", tasks[1]["reach_page"])
+        self.assertEqual(tasks[1]["wait_between_clicks_seconds"], 30)     # stated in case the tab has moved
+
+    def test_reaching_a_deep_page_by_pager_is_paced_and_paid_for(self):
+        def change(raw):
+            for name in ("zillow", "streeteasy"):
+                raw["search"]["sources"][name]["enabled"] = False
+            raw["search"]["sources"]["craigslist"].update(max_pages=50, subareas=["brk"])
+            raw["limits"]["max_search_pages_per_run"] = 3
+        self.agent.cfg = make_config(change)
+        pages = [[{"url": demo.CL % ("brk", "79%06d" % p), "title": "brk post number %d long title" % p, "rent": 9000, "beds": 1}]
+                 for p in range(8)]
+        self.day(1, {"sweeps": {"craigslist:0:2800-4400": {"pages": pages}}})
+        self.day(2, {"sweeps": {"craigslist:0:2800-4400": {"pages": pages}, "craigslist:0:new": {"pages": pages}}})
+        deep = [t for t in self.agent.tasks("sweep") if t["mode"] == "full"][0]
+        self.assertEqual((deep["page"], deep["wait_between_clicks_seconds"]), (3, 30))
+        self.assertIn("click through the pager to page 3", deep["reach_page"])
+
+    def test_site_cap_reached_mid_sweep_splits_the_band(self):
+        self.only_streeteasy()
+        self.agent.cfg.sources["streeteasy"]["max_pages"] = 2
+        self.day(1, {"sweeps": {"streeteasy:0:2800-4400": {"pages": many_pages(5)}}})
+        self.assertEqual([t["sweep"] for t in self.agent.tasks("sweep")],
+                         ["streeteasy:0:2800-4400"] * 2 + ["streeteasy:0:2800-3600", "streeteasy:0:3601-4400"])
+
+    def test_band_too_narrow_to_split_is_reported_and_proves_nothing(self):
+        self.only_streeteasy(min_band_width=5000)
+        self.agent.cfg.sources["streeteasy"]["max_pages"] = 2
+        result = self.day(1, {"sweeps": {"streeteasy:0:2800-4400": {"pages": many_pages(5)}}})
+        self.assertTrue(any("some listings may be missed" in note for note in result["finished"]["notes"]))
+
+    def test_busy_newest_first_sweep_stops_at_the_cap_with_a_note(self):
+        self.only_streeteasy()
+        self.day(1, {"sweeps": {}})
+        self.agent.cfg.sources["streeteasy"]["max_pages"] = 2
+        result = self.day(2, {"sweeps": {"streeteasy:0:new": {"pages": many_pages(5)}}})
+        self.assertEqual(len(self.agent.tasks("sweep")), 2)
+        self.assertTrue(any("next full sweep will pick up the rest" in note for note in result["finished"]["notes"]))
+
+    def test_pages_must_arrive_in_order_and_once(self):
+        self.only_streeteasy()
+        self.agent.call(pipeline.start)
+        task = self.agent.call(pipeline.next_task)
+        page = {"sweep": task["sweep"], "page": 1, "cards": [], "last_page": False}
+        for bad in (dict(page, page=2), dict(page, page="1"), dict(page, page=None), dict(page, last_page="no")):
+            with self.assertRaises(ScoutError):
+                self.agent.call(pipeline.ingest, bad)
+        self.assertTrue(self.agent.call(pipeline.ingest, page)["go_on"])
+        with self.assertRaises(ScoutError) as caught:
+            self.agent.call(pipeline.ingest, page)      # the reply was lost and the page is sent again
+        self.assertIn("Expected page 2", caught.exception.errors[0])
+
+
+class Rechecks(PipelineCase):
+    QUIET = {"sweeps": {}}
+
+    def gone_pages(self):
+        return dict((rec_id, {"id": rec_id, "gone": True}) for rec_id in self.listings())
+
+    def test_tours_are_rechecked_sooner_than_watches(self):
+        self.day(1, demo.DAY1)
+        self.day(2, demo.DAY2)      # Norman and Berry become TOURs on day 2
+        self.day(3, self.QUIET)
+        self.assertEqual(self.agent.tasks("enrich"), [])
+        self.day(4, dict(self.QUIET, pages={NORMAN: demo.DAY2["pages"][NORMAN], BERRY: demo.DAY2["pages"][BERRY]}))
+        self.assertEqual([(t["id"], t["why"]) for t in self.agent.tasks("enrich")],
+                         [(BERRY, "recheck"), (NORMAN, "recheck")])
+
+    def test_rechecks_are_rationed_stalest_first(self):
+        self.agent.cfg = make_config(lambda raw: raw["refresh"].update(max_rechecks_per_run=2, full_sweep_every_days=99))
+        self.day(1, demo.DAY1)
+        self.day(6, dict(self.QUIET, pages=self.gone_pages()))
+        first = set(t["id"] for t in self.agent.tasks("enrich"))
+        self.day(7, dict(self.QUIET, pages=self.gone_pages()))
+        second = set(t["id"] for t in self.agent.tasks("enrich"))
+        self.assertEqual((len(first), len(second), len(first & second)), (2, 2, 0))
+
+    def test_a_page_read_live_counts_as_seen(self):
+        self.agent.cfg = make_config(lambda raw: raw["refresh"].update(full_sweep_every_days=99))
+        self.day(1, demo.DAY1)
+        self.day(5, dict(self.QUIET, pages=demo.DAY1["pages"]))
+        self.assertEqual(len(self.agent.tasks("enrich")), 4)
+        rec = self.listings()[E7]
+        self.assertTrue(rec["last_seen"].startswith("2026-10-09"))
+        self.day(6, dict(self.QUIET, pages=demo.DAY1["pages"]))
+        self.assertEqual([t["id"] for t in self.agent.tasks("enrich")], [NO_ADDRESS])   # the one left over
+
+    def test_recheck_that_changes_nothing_is_not_announced_again(self):
+        self.agent.cfg = make_config(lambda raw: raw["refresh"].update(full_sweep_every_days=99))
+        first = self.day(1, demo.DAY1)
+        self.assertEqual(len(first["finished"]["announce"]["WATCH"]), 5)
+        again = self.day(5, dict(self.QUIET, pages=demo.DAY1["pages"]))
+        self.assertEqual(again["finished"]["announce"], {"TOUR": [], "WATCH": []})
+        self.assertIn("## WATCH: 0 new", summary.build(Store(self.dir).load()))
 
 
 class Resilience(PipelineCase):
@@ -216,9 +540,25 @@ class Resilience(PipelineCase):
     def test_page_by_page_sweep_remembers_its_place(self):
         self.agent.call(pipeline.start)
         key = self.agent.call(pipeline.next_task)["sweep"]
-        self.agent.call(pipeline.ingest, {"sweep": key, "cards": [], "pages_read": 2, "complete": False})
-        task = self.agent.call(pipeline.next_task)
-        self.assertEqual((task["sweep"], task["resume_after_page"]), (key, 2))
+        for page in (1, 2):
+            self.agent.call(pipeline.ingest, {"sweep": key, "page": page, "cards": [], "last_page": False})
+        self.agent.call(pipeline.start)      # the session dropped and came back
+        pages = {}
+        for _ in range(10):      # searches read less far go first
+            task = self.agent.call(pipeline.next_task)
+            pages[task["sweep"]] = task["page"]
+            self.clock.tick(60)
+            if task["sweep"] == key:
+                break
+            self.agent.call(pipeline.ingest, {"sweep": task["sweep"], "page": task["page"], "cards": [], "last_page": True})
+        self.assertEqual(pages[key], 3)
+
+    def test_daily_start_is_not_swallowed_by_a_leftover_no_sweep_run(self):
+        self.agent.call(pipeline.start, False)       # "what about this listing?", never finished
+        self.clock.tick(3600)
+        started = self.agent.call(pipeline.start)
+        self.assertTrue(started["resumed"])
+        self.assertEqual(self.agent.call(pipeline.next_task)["task"], "sweep")
 
     def test_stale_run_is_closed_and_a_new_one_started(self):
         self.agent.run(demo.DAY1, stop_after=9)
@@ -256,17 +596,69 @@ class Resilience(PipelineCase):
         self.clock.tick(61 * 60)
         self.assertEqual(self.agent.call(pipeline.next_task)["why"], "time limit reached")
 
-    def test_throttle_is_per_site(self):
+    def one_site(self):
+        def change(raw):
+            for name in ("zillow", "craigslist"):
+                raw["search"]["sources"][name]["enabled"] = False
+        self.agent.cfg = make_config(change)
         self.agent.call(pipeline.start)
-        self.assertEqual(self.agent.call(pipeline.next_task)["wait_seconds"], 0)
+
+    def test_pages_on_one_site_are_never_closer_than_the_throttle(self):
+        self.one_site()
+        loads, clock = [], self.clock
+        for page, (lag, reading) in enumerate(((0, 10), (12, 3), (1, 40), (9, 1), (0, 5)), 1):
+            task = self.agent.call(pipeline.next_task)
+            clock.tick(task["wait_seconds"] + lag)       # the agent waits as told, dawdles, then loads the page
+            loads.append(clock.now)
+            clock.tick(reading)
+            self.agent.call(pipeline.ingest, {"sweep": task["sweep"], "page": page, "cards": [], "last_page": False})
+        gaps = [(later - earlier).total_seconds() for earlier, later in zip(loads, loads[1:])]
+        self.assertTrue(all(gap >= 20 for gap in gaps), gaps)
+
+    def test_a_task_picked_up_again_after_a_stall_restarts_the_clock(self):
+        self.one_site()
+        self.agent.call(pipeline.next_task)
+        self.clock.tick(600)                              # the session stalls before the page is loaded
+        task = self.agent.call(pipeline.next_task)
+        self.assertEqual((task["page"], task["wait_seconds"]), (1, 0))
+        self.clock.tick(2)
+        self.agent.call(pipeline.ingest, {"sweep": task["sweep"], "page": 1, "cards": [], "last_page": False})
+        self.assertEqual(self.agent.call(pipeline.next_task)["wait_seconds"], 20)
+
+    def test_asking_again_does_not_push_the_wait_back(self):
+        self.agent.call(pipeline.start)
+        first = self.agent.call(pipeline.next_task)
+        self.agent.call(pipeline.ingest, {"sweep": first["sweep"], "page": 1, "cards": [], "last_page": False})
+        self.agent.cfg.sources["zillow"]["enabled"] = self.agent.cfg.sources["craigslist"]["enabled"] = False
+        self.assertEqual(self.agent.call(pipeline.next_task)["wait_seconds"], 20)
         self.clock.tick(5)
         self.assertEqual(self.agent.call(pipeline.next_task)["wait_seconds"], 15)
+
+    def test_the_site_that_has_waited_longest_goes_next(self):
+        self.agent.call(pipeline.start)
+        order = []
+        for _ in range(3):
+            task = self.agent.call(pipeline.next_task)
+            order.append((task["source"], task["wait_seconds"]))
+            self.agent.call(pipeline.ingest, {"sweep": task["sweep"], "page": task["page"], "cards": [], "last_page": False})
+        self.assertEqual(order, [("streeteasy", 0), ("zillow", 0), ("craigslist", 0)])
+
+    def test_null_site_throttle_means_the_default(self):
+        self.agent.cfg = make_config(lambda raw: raw["search"]["sources"]["craigslist"].update(throttle_seconds=None))
+        self.assertEqual(pipeline._pause(self.agent.cfg, "craigslist"), 20)
 
     def test_second_command_at_once_is_refused(self):
         with opened(self.dir):
             with self.assertRaises(ScoutError):
                 with opened(self.dir):
                     pass
+
+    def test_store_file_is_valid_json_with_one_listing_per_line(self):
+        self.day(1, demo.DAY1)
+        with open(os.path.join(self.dir, "store.json"), encoding="utf-8") as handle:
+            text = handle.read()
+        self.assertEqual(json.loads(text), Store(self.dir).load().data)
+        self.assertEqual(sum(1 for line in text.split("\n") if line.startswith('  "')), 11)
 
     def test_backups_are_kept(self):
         self.day(1, demo.DAY1)

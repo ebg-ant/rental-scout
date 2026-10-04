@@ -60,7 +60,7 @@ def decide(cfg, prefilter, card_reject, gate, flags, scores, totals):
             return TOUR, "Score %g. %s" % (score, highlights)
         return WATCH, "Score %g would be a TOUR; held back by %s. %s" % (score, "; ".join(holds), highlights)
     if score >= watch["min_score"]:
-        return WATCH, "Score %g.%s %s" % (score, caveat, highlights)
+        return WATCH, "Score %g, %g short of a TOUR.%s %s" % (score, round(tour["min_score"] - score, 1), caveat, highlights)
     if unknown_weight > 0 and totals["ceiling"] >= tour["min_score"]:
         return WATCH, "Score %g on what could be checked, but it could reach %g once the unknowns are settled.%s %s" \
             % (score, totals["ceiling"], caveat, highlights)
