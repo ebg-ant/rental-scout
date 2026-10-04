@@ -1,0 +1,137 @@
+{
+  "id": "streeteasy-demo-88-berry-street-6c",
+  "source": "streeteasy",
+  "url": "https://streeteasy.com/building/demo-88-berry-street/6c",
+  "raw_text": "Modern one bedroom in a full-service Williamsburg elevator building. One month free on a 13-month lease. Gross rent $4,300. Washer and dryer in unit, dishwasher, central air. Private balcony. Doorman and package room. West-facing over Berry Street. Pets upon approval.",
+  "facts": {
+    "rent_advertised_is": "gross",
+    "free_months": 1,
+    "lease_term_months": 13,
+    "furnished": false,
+    "sublet": false,
+    "room_share": false,
+    "tenant_pays_broker_fee": false,
+    "level": "upper",
+    "flood_zone": "none",
+    "noise_sources": [],
+    "photos_recency": "recent",
+    "photo_count": 4,
+    "rent_advertised": 4300,
+    "beds": 1,
+    "baths": 1,
+    "neighborhood": "Williamsburg",
+    "zip": "11249",
+    "floor": 6,
+    "elevator": true,
+    "laundry": "in_unit",
+    "commute_minutes": 31,
+    "available_date": "2026-11-15",
+    "dishwasher": true,
+    "ac": "central",
+    "outdoor": "private",
+    "doorman": true
+  },
+  "unknown": {
+    "cats": "page only says 'Pets upon approval'; no cat policy stated",
+    "sqft": "not stated on the page",
+    "rent_stabilized": "not stated on the page",
+    "income_multiple_required": "not stated on the page"
+  },
+  "provenance": {
+    "rent_advertised_is": {
+      "where": "listing page"
+    },
+    "free_months": {
+      "where": "description",
+      "quote": "One month free on a 13-month lease"
+    },
+    "lease_term_months": {
+      "where": "listing page"
+    },
+    "furnished": {
+      "where": "listing page"
+    },
+    "sublet": {
+      "where": "listing page"
+    },
+    "room_share": {
+      "where": "listing page"
+    },
+    "tenant_pays_broker_fee": {
+      "where": "listing page"
+    },
+    "level": {
+      "where": "listing page"
+    },
+    "flood_zone": {
+      "where": "listing page"
+    },
+    "noise_sources": {
+      "where": "listing page"
+    },
+    "photos_recency": {
+      "where": "listing page"
+    },
+    "photo_count": {
+      "where": "listing page"
+    },
+    "rent_advertised": {
+      "where": "description",
+      "quote": "Gross rent $4,300"
+    },
+    "beds": {
+      "where": "listing page"
+    },
+    "baths": {
+      "where": "listing page"
+    },
+    "neighborhood": {
+      "where": "listing page"
+    },
+    "zip": {
+      "where": "listing page"
+    },
+    "floor": {
+      "where": "listing page"
+    },
+    "elevator": {
+      "where": "listing page"
+    },
+    "laundry": {
+      "where": "listing page"
+    },
+    "commute_minutes": {
+      "where": "listing page"
+    },
+    "available_date": {
+      "where": "listing page"
+    },
+    "dishwasher": {
+      "where": "listing page"
+    },
+    "ac": {
+      "where": "listing page"
+    },
+    "outdoor": {
+      "where": "listing page"
+    },
+    "doorman": {
+      "where": "listing page"
+    }
+  },
+  "photos": [
+    "https://photos.example.com/demo/streeteasy-demo-88-berry-street-6c/1.jpg",
+    "https://photos.example.com/demo/streeteasy-demo-88-berry-street-6c/2.jpg",
+    "https://photos.example.com/demo/streeteasy-demo-88-berry-street-6c/3.jpg",
+    {
+      "url": "https://photos.example.com/demo/streeteasy-demo-88-berry-street-6c/4.jpg",
+      "caption": "balcony"
+    }
+  ],
+  "floor_plans": [
+    "https://photos.example.com/demo/streeteasy-demo-88-berry-street-6c/plan.jpg"
+  ],
+  "address": {
+    "raw": "88 Berry Street #6C, Brooklyn, NY 11249"
+  }
+}

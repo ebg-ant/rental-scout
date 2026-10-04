@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -m scout:*)",
+      "Bash(python3 --version)",
+      "Bash(sleep:*)",
+      "Bash(mkdir -p data/tmp)",
+      "Write(data/tmp/**)",
+      "Edit(data/tmp/**)"
+    ],
+    "deny": [
+      "Edit(data/store.json)",
+      "Write(data/store.json)",
+      "Bash(curl:*)",
+      "Bash(wget:*)"
+    ]
+  }
+}

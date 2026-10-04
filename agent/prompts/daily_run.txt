@@ -1,0 +1,7 @@
+Run the rental scout in this folder.
+
+Read agent/RUNBOOK.md and follow it exactly, including its hard rules. Use my logged-in Chrome for every listing site. Run `python3 -m scout start`, then keep running `python3 -m scout next` and doing what it says until it tells you to finish, then run `python3 -m scout finish`.
+
+If a site shows a CAPTCHA, block page or login screen, report it with `python3 -m scout blocked` and carry on with the other sites. Never contact anyone, submit any form, or enter credentials.
+
+End with a short message: the TOUR listings with one-line reasons and their links, the WATCH listings and what would settle each, the counts, and anything that went wrong. Remind me the full report is data/report.html.

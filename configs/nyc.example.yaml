@@ -1,0 +1,453 @@
+# Rental Scout config: New York City, filled-in EXAMPLE
+#
+# A made-up search ("Sam", one cat, 1+ bedroom, $4,000 ceiling) showing what a finished config
+# looks like. It is nyc.template.yaml with every TODO answered. The tests and the demo use it.
+# The search URLs are illustrative; build your own on each site.
+#
+# Anything you do not want: set `enabled: false` on it rather than deleting it.
+# After any change, the next run re-judges everything already seen. No re-browsing needed.
+
+version: 1
+
+# ---------------------------------------------------------------------------
+# Who is looking. Stays on this computer; scout.config.yaml is never committed.
+# ---------------------------------------------------------------------------
+profile:
+  name: Sam (example)
+  move_in_earliest: null        # YYYY-MM-DD, or null
+  move_in_latest: 2026-12-15          # YYYY-MM-DD. Listings available after this miss the `available` rule
+  annual_income: 160000           # household, before tax. Optional; only used to warn about the 40x rule
+  has_guarantor: false
+
+# ---------------------------------------------------------------------------
+# Where to look
+# ---------------------------------------------------------------------------
+search:
+  city: "New York, NY"
+
+  # Advertised-rent range to sweep. Set price_max about 10% above your real ceiling:
+  # a listing with a free month can advertise above your ceiling and still net out below it.
+  price_min: 2800
+  price_max: 4400
+
+  areas:
+    neighborhoods: [East Village, Lower East Side, Williamsburg, Greenpoint, Long Island City, Astoria]       # e.g. [East Village, Lower East Side, Williamsburg]
+    zips: []                    # optional, as well as or instead of names
+    # Other spellings the sites use. Left side is the name used above.
+    aliases:
+      Bedford-Stuyvesant: [Bed-Stuy, Bed Stuy, Bedford Stuyvesant, Stuyvesant Heights]
+      Hell's Kitchen: [Hells Kitchen, Clinton, Midtown West]
+      Lower East Side: [LES, Two Bridges]
+      East Village: [Alphabet City]
+      Upper East Side: [UES, Yorkville, Lenox Hill, Carnegie Hill]
+      Upper West Side: [UWS, Lincoln Square, Manhattan Valley]
+      Long Island City: [LIC, Hunters Point]
+      Prospect Lefferts Gardens: [PLG, Lefferts Gardens]
+      Downtown Brooklyn: [DoBro]
+      Williamsburg: [East Williamsburg, North Williamsburg, South Williamsburg]
+      Financial District: [FiDi]
+      Flatiron: [Flatiron District, NoMad]
+      Gramercy Park: [Gramercy]
+      Greenwich Village: [The Village]
+      Kips Bay: [Kip's Bay]
+      Washington Heights: [Hudson Heights, Fort George]
+
+  commute_anchor:
+    label: Office                 # e.g. Office
+    address: "Grand Central Terminal, 89 E 42nd St, New York, NY 10017"               # full street address
+    mode: transit
+    arrive_by: "a weekday at 9:00am"
+
+  # Streets with two official names, so the same door matches across sites.
+  street_aliases:
+    "avenue of the americas": "6th avenue"
+    "malcolm x boulevard": "lenox avenue"
+    "adam clayton powell jr boulevard": "7th avenue"
+    "frederick douglass boulevard": "8th avenue"
+
+  # Order matters: when a unit is on several sites, the first one listed here is opened.
+  sources:
+    streeteasy:
+      label: StreetEasy
+      enabled: true
+      url_style: streeteasy
+      # Build the search on streeteasy.com, then paste the address-bar URL here.
+      # It should look like https://streeteasy.com/for-rent/nyc/price:-4000%7Carea:...%7Cbeds:1
+      saved_search_urls: ["https://streeteasy.com/for-rent/nyc/price:2800-4400%7Cbeds%3E=1"]
+      max_pages: 8
+    zillow:
+      label: Zillow
+      enabled: true
+      url_style: zillow
+      # Build the search on zillow.com (For Rent), then paste the long address-bar URL
+      # (it contains searchQueryState=...).
+      saved_search_urls: ["https://www.zillow.com/new-york-ny/rentals/?searchQueryState=%7B%22filterState%22%3A%7B%22fr%22%3A%7B%22value%22%3Atrue%7D%2C%22beds%22%3A%7B%22min%22%3A1%7D%7D%7D"]
+      max_pages: 6              # Zillow stops showing new results after about 6 pages
+    craigslist:
+      label: Craigslist
+      enabled: true
+      url_style: craigslist
+      site: newyork
+      subareas: [mnh, brk, que] # mnh Manhattan, brk Brooklyn, que Queens, brx Bronx, stn Staten Island
+      params: {sort: date}      # optional extras, e.g. min_bedrooms: 1, pets_cat: 1
+      max_pages: 3
+      throttle_seconds: 30      # Craigslist blocks fast readers
+    email_alerts:
+      label: Email alerts
+      enabled: false            # needs the Gmail connector; see agent/sources/email_alerts.md
+      url_style: inbox
+
+  # Lookups handed to the agent with each listing, and shown as buttons in the report.
+  # {address} {anchor} {lat} {lng} {zip} are filled in; a link is skipped if its value is unknown.
+  helper_links:
+    - id: directions
+      label: Directions
+      note: Transit directions to the commute anchor. Set the arrival time by hand
+      url: "https://www.google.com/maps/dir/?api=1&origin={address}&destination={anchor}&travelmode=transit"
+    - id: map
+      label: Map
+      note: Switch to satellite for what surrounds the building; drop into Street View to count stories
+      url: "https://www.google.com/maps/search/?api=1&query={address}"
+    - id: street_view
+      label: Street View
+      note: Street View at the door (needs coordinates)
+      url: "https://www.google.com/maps/@?api=1&map_action=pano&viewpoint={lat},{lng}"
+    - id: fema_flood
+      label: FEMA flood map
+      note: Official flood zone for this address
+      url: "https://msc.fema.gov/portal/search?AddressQuery={address}"
+    - id: nyc_flood
+      label: NYC flood map
+      note: NYC Flood Hazard Mapper; search the address once it opens
+      url: "https://www.nyc.gov/site/planning/data-maps/flood-hazard-mapper.page"
+    - id: hpd
+      label: HPD violations
+      note: HPD Online; search the address for open violations and complaints
+      url: "https://www.nyc.gov/site/hpd/about/hpd-online.page"
+    - id: stabilized_lists
+      label: Stabilized buildings
+      note: Buildings registered as having rent-stabilized units. Building level only, not per apartment
+      url: "https://rentguidelinesboard.cityofnewyork.us/resources/rent-stabilized-building-lists/"
+
+# ---------------------------------------------------------------------------
+# Prefilters: thrown out from the search card alone, before any page is opened.
+# Plain phrases match whole words, any capitalisation. Start with `re:` for a regex.
+# ---------------------------------------------------------------------------
+prefilters:
+  - id: furnished
+    reason: Furnished rental
+    reject_if_any: [furnished]
+    unless_any: [unfurnished, furnished or unfurnished, can be furnished, optionally furnished,
+                 virtually staged, virtually furnished]
+  - id: short_term
+    reason: Short-term or mid-term only
+    reject_if_any: [short term, short-term, mid term, mid-term, midterm, month to month, month-to-month,
+                    monthly rental, summer rental, temporary housing, corporate housing,
+                    "re:\\b([1-9]|1[01])[- ]months?[- ](lease|rental|stay|term|minimum|min|max|only)\\b"]
+  - id: sublet
+    reason: Sublet or lease takeover
+    reject_if_any: [sublet, sublease, sub-lease, subletting, lease takeover, lease assignment, take over my lease]
+  - id: room_share
+    reason: A room, not a whole apartment
+    reject_if_any: [room for rent, private room, room available, roommate wanted, roommates wanted,
+                    seeking roommate, looking for a roommate, shared apartment, co-living, coliving, flatmate]
+  - id: not_housing
+    reason: Not a home
+    reject_if_any: [parking spot, parking space for rent, storage unit, office space, retail space, commercial space]
+  - id: no_pets
+    enabled: true               # true if you have or want a pet, otherwise false
+    reason: No pets
+    reject_if_any: [no pets, pets not allowed, no pets allowed, pet free building]
+
+# ---------------------------------------------------------------------------
+# The gate: must-haves, checked by code against facts read from the listing page.
+#
+#   op           at_most, at_least, is, is_not, in, not_in
+#   on_unknown   fail = treat as a miss | pass = let it through | flag = keep it, but it cannot be a TOUR yet
+#   dealbreaker  true = one miss is an instant PASS
+#   trust_card   true = the search card is reliable for this, so a clear miss skips opening the page
+#   unless       an exception, e.g. any floor is fine if there is an elevator
+#
+# `python3 -m scout fields` lists every field you can test.
+# ---------------------------------------------------------------------------
+gate:
+  max_fails: 1                  # non-dealbreaker misses allowed. One miss caps the listing at WATCH
+  rules:
+    - id: rent
+      label: Rent
+      field: rent_net_effective # or rent_gross, if your ceiling is about the monthly payment
+      op: at_most
+      value: 4000
+      on_unknown: flag
+      dealbreaker: true
+      trust_card: true
+      card_margin_pct: 15       # only skip from the card if it is more than 15% over
+    - id: beds
+      label: Bedrooms
+      field: beds
+      op: at_least
+      value: 1                  # 0 = studio is fine
+      on_unknown: flag
+      dealbreaker: true
+      trust_card: true
+    - id: area
+      label: Neighborhood
+      field: in_target_area
+      op: is
+      value: true
+      on_unknown: flag
+    - id: cats
+      enabled: true             # true if you have a cat
+      label: Cats
+      field: cats
+      op: is
+      value: allowed            # "case by case" is not a yes
+      on_unknown: flag
+      dealbreaker: true
+    - id: dogs
+      enabled: false            # true if you have a dog
+      label: Dogs
+      field: dogs
+      op: is
+      value: allowed
+      on_unknown: flag
+      dealbreaker: true
+    - id: lease_length
+      label: Lease length (months)
+      field: lease_term_months
+      op: at_least
+      value: 12
+      on_unknown: pass          # most listings do not state it; 12 months is the norm
+      dealbreaker: true
+    - id: unfurnished
+      label: Furnished
+      field: furnished
+      op: is
+      value: false
+      on_unknown: pass
+      dealbreaker: true
+    - id: not_sublet
+      label: Sublet
+      field: sublet
+      op: is
+      value: false
+      on_unknown: pass
+      dealbreaker: true
+    - id: whole_unit
+      label: Room share
+      field: room_share
+      op: is
+      value: false
+      on_unknown: pass
+      dealbreaker: true
+    - id: walkup
+      label: Floor (walk-up)
+      field: floor
+      op: at_most
+      value: 3                  # highest floor you will climb to
+      unless: {field: elevator, op: is, value: true}
+      on_unknown: flag
+    - id: laundry
+      label: Laundry
+      field: laundry
+      op: at_least
+      value: in_building        # none | in_building | in_unit
+      on_unknown: flag
+    - id: commute
+      label: Commute (minutes)
+      field: commute_minutes
+      op: at_most
+      value: 45
+      on_unknown: flag
+    - id: available
+      label: Available
+      field: available_date
+      op: on_or_before
+      value_from: profile.move_in_latest
+      on_unknown: flag
+
+# ---------------------------------------------------------------------------
+# Facts to record for every listing opened, even though no gate rule needs them.
+# Each must be recorded or explicitly marked unknown. They feed the warnings in the report.
+# ---------------------------------------------------------------------------
+capture:
+  always:
+    - baths
+    - sqft
+    - tenant_pays_broker_fee
+    - rent_stabilized
+    - income_multiple_required
+    - level
+    - flood_zone
+    - noise_sources
+    - dishwasher
+    - ac
+    - outdoor
+    - photo_count
+    - photos_recency
+
+# ---------------------------------------------------------------------------
+# The rubric: judgment calls, scored 0-10 by the agent for listings that pass the gate.
+# Weights must add up to 1.0. The anchors are what keep scores consistent from day to day,
+# so make them concrete. Rewording a criterion re-scores it; changing a weight only re-ranks.
+#
+#   evidence_required   photos, floor_plan, satellite, street_view, map, text, records
+# ---------------------------------------------------------------------------
+rubric:
+  - id: light
+    label: Light and exposure
+    weight: 0.25
+    guidance: >
+      State the floor, which way the main windows face, and name what stands in front of them.
+      Use satellite and Street View to find what blocks the light, then check it against the view
+      out of the windows in the photos. Front or rear unit? Any airshaft or lot-line windows?
+      Ignore how bright the photos look: they are edited.
+    evidence_required: [photos, satellite]
+    anchors:
+      10: Corner or high-floor unit with windows on two or more sides; main rooms face south or west over a park, wide avenue, low roofs or open sky.
+      8: Main rooms face south, east or west onto a street or open rear yards, with nothing taller than this floor within about 60 feet.
+      6: Direct light for part of the day. Mid floor on a normal side street with similar-height buildings opposite, or north-facing but wide open.
+      4: Low floor facing a taller building across a narrow street, or a rear unit facing a close rear wall.
+      2: Main windows open onto an airshaft, an enclosed court or a lot-line wall; or ground or garden level with windows at or below the sidewalk.
+      0: Basement, or a main room with no real window.
+  - id: layout
+    label: Layout and bedroom quality
+    weight: 0.20
+    guidance: >
+      Judge from the floor plan first, photos second. Does each bedroom fit a queen bed with room to
+      walk, and have a window and a closet? Are bedrooms split or do they share a wall? Any flex wall,
+      "convertible", "junior" or windowless "home office" counted as a bedroom? Does the living room
+      fit a sofa and a table?
+    evidence_required: [photos, floor_plan]
+    anchors:
+      10: Every bedroom fits a queen with walking room and has a window and closet; bedrooms are separated by the living space; living room fits a sofa and a dining table.
+      8: Every bedroom is a true bedroom with window and closet, but they share a wall or one is clearly smaller.
+      6: Works with one compromise. One bedroom fits only a full bed, or closets are thin, or the only path to the bath crosses the living room.
+      4: Railroad layout where one bedroom is the route to another, or a living room too small for both a sofa and a table.
+      2: The bedroom count depends on a flex or pressurized wall, or a "convertible", "junior" or office space.
+      0: A room sold as a bedroom has no window or cannot fit a full bed.
+  - id: building
+    label: Building and access
+    weight: 0.15
+    guidance: >
+      Elevator or walk-up and how many flights; doorman, virtual doorman or package room; state of the
+      lobby, halls and facade; open HPD violations and recent heat, hot water or pest complaints,
+      relative to building size; management reputation if reviews are easy to find.
+    evidence_required: [text, records]
+    anchors:
+      10: Elevator or at most one flight; doorman or secure package room; well-kept common areas; few or no open HPD violations for its size.
+      8: Elevator or at most two flights; secure entry and some package solution; clean common areas; only minor (class A) open violations.
+      6: Third-floor walk-up or a dated elevator building; no package handling; tidy; a handful of open violations, none class C.
+      4: Fourth-floor walk-up; or visible neglect in halls or facade; or a pattern of heat, hot water or pest complaints in the last two years.
+      2: Fifth floor or higher walk-up; or many open class C (immediately hazardous) violations; or consistently bad management reviews.
+  - id: commute
+    label: Commute and transit
+    weight: 0.15
+    guidance: >
+      Door-to-door transit time to the commute anchor at the configured arrival time, from a directions
+      lookup. Note the lines, the walk to the station, transfers, and whether a second line gives a backup.
+    evidence_required: [map]
+    anchors:
+      10: 20 minutes or less, one train, 5-minute walk or less to the station, and a second line nearby as backup.
+      8: 30 minutes or less, no transfer or one easy transfer, walk of 8 minutes or less.
+      6: 40 minutes or less with one transfer, walk of 10 minutes or less.
+      4: 50 minutes or less; or two transfers; or a 12-15 minute walk to the station; or the route depends on a bus.
+      2: Over 50 minutes; or more than a 15-minute walk to the only station; or a single line with no backup and frequent weekend outages.
+  - id: practical
+    label: Practicalities
+    weight: 0.15
+    guidance: >
+      Laundry, dishwasher, cooling (central or split beats through-wall beats window units), closets and
+      storage. Quote the amenities list. If a thorough listing does not mention something, treat it as absent
+      and say so; if the listing is thin, mark it unknown.
+    evidence_required: [text]
+    anchors:
+      10: Washer and dryer in the unit, dishwasher, central or split AC, and real storage (several closets or a storage unit).
+      8: Laundry in the building, dishwasher, built-in AC (split or through-wall), decent closets.
+      6: Laundry in the building, and either a dishwasher or built-in AC but not both.
+      4: Laundry in the building but no dishwasher and window AC only; or no laundry in the building but otherwise well equipped.
+      2: No laundry in the building, no dishwasher, window units, minimal closets.
+  - id: outdoor
+    label: Outdoor space
+    weight: 0.10
+    guidance: >
+      Private balcony, terrace, yard or roof deck first; shared roof or courtyard earns partial credit.
+      Judge usable size from photos. If a thorough listing shows and mentions no outdoor space, score it 0
+      and cite what you checked; score null only if the listing is too thin to tell.
+    evidence_required: []
+    anchors:
+      10: Private terrace, yard or roof deck reached from the unit, big enough for a table and chairs.
+      8: Private balcony that fits two chairs.
+      5: Shared roof deck or courtyard that is furnished and clearly in use.
+      3: Shared outdoor space exists but is bare or access is unclear; or a Juliet balcony.
+      0: No private or shared outdoor space.
+
+# ---------------------------------------------------------------------------
+# Verdicts
+# ---------------------------------------------------------------------------
+verdicts:
+  tour:
+    min_score: 75
+    max_gate_fails: 0           # a listing with a must-have miss cannot be a TOUR
+    max_gate_unknowns: 0        # nor one with a flagged unknown; it becomes WATCH with the question to ask
+    max_unknown_weight: 0.25    # nor one where more than 25% of the score could not be verified
+  watch:
+    min_score: 60
+
+# ---------------------------------------------------------------------------
+# Scam and quality checks. Any high-risk flag, or `low_flags_to_pass` low-risk ones, gives PASS (risk).
+#   high: price_too_low, scam_language, deposit_before_viewing, owner_remote, photos_reused
+#   low:  no_address, stale_photos, no_photos
+# ---------------------------------------------------------------------------
+risk:
+  price_floor_pct: 0.6          # flag if rent is under 60% of the typical rent for that bedroom count
+  reference_rents: {}           # typical rent by bedrooms, e.g. {0: 3200, 1: 4000}. Empty = learn from listings seen
+  min_comps: 8                  # listings needed before the learned figure is trusted
+  low_flags_to_pass: 2
+  disable: []                   # check ids to switch off
+  scam_phrases:
+    - out of the country
+    - currently abroad
+    - missionary
+    - on a mission trip
+    - wire transfer
+    - western union
+    - moneygram
+    - gift card
+    - gift cards
+    - keys will be mailed
+    - mail you the keys
+    - ship the keys
+    - send you the keys
+    - deposit before viewing
+    - god fearing
+
+# ---------------------------------------------------------------------------
+# Cost rules behind the warnings. These reflect New York rules as commonly summarised; the scout
+# only flags, it does not give legal advice. Check anything that matters with an official source.
+# ---------------------------------------------------------------------------
+costs:
+  max_deposit_months: 1         # NY caps security deposits at one month's rent
+  max_application_fee: 20       # NY caps background and credit check fees at $20 or actual cost, if lower
+  default_income_multiple: 40   # the usual landlord rule when the listing does not state one
+  broker_fee_note: >-
+    Under NYC's FARE Act (in effect since June 11, 2025) whoever hires the broker pays the fee,
+    which is usually the landlord. See nyc.gov/site/dca/about/FAQ-Broker-Fees.page
+
+# ---------------------------------------------------------------------------
+# Limits: how gently the scout treats the sites
+# ---------------------------------------------------------------------------
+limits:
+  max_listings_per_run: 10      # listing pages opened per run
+  throttle_seconds: 20          # minimum wait between pages on one site
+  max_runtime_minutes: 60
+  delist_after_missed_sweeps: 2 # full sweeps a listing must be missing from before it is marked off-market
+  min_band_width: 100           # narrowest price band, in dollars, when splitting a capped search
+  recheck_after_days: 3         # re-open a TOUR or WATCH listing that no sweep has seen for this long
+
+calibration:
+  min_tours: 10                 # tours to record before `python3 -m scout calibrate` offers suggestions
+
+# Add your own facts here, then use them in the gate or in capture.always.
+#   - {id: home_office_nook, type: bool, help: "True if there is space for a desk outside the bedroom"}
+custom_fields: []

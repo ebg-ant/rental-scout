@@ -1,0 +1,81 @@
+{
+  "id": "craigslist-7900000003",
+  "headline": "Promising owner-direct unit, but nothing about the location can be checked yet.",
+  "questions": [
+    "What is the street address?"
+  ],
+  "criteria": {
+    "light": {
+      "score": null,
+      "unknown_reason": "No address, so what faces the windows cannot be checked on satellite or Street View"
+    },
+    "layout": {
+      "score": 8,
+      "rationale": "Bedroom fits a queen with a closet and window; living room fits a sofa and table.",
+      "evidence": [
+        {
+          "type": "photos",
+          "photos": [
+            2,
+            3,
+            4,
+            5,
+            6
+          ]
+        }
+      ],
+      "unavailable": [
+        {
+          "type": "floor_plan",
+          "reason": "post has no floor plan"
+        }
+      ]
+    },
+    "building": {
+      "score": 7,
+      "rationale": "Top floor of a three-story house, two flights up; owner managed and tidy.",
+      "evidence": [
+        {
+          "type": "text",
+          "quote": "Top floor of a three story house"
+        }
+      ],
+      "unavailable": [
+        {
+          "type": "records",
+          "reason": "no address to look up on HPD Online"
+        }
+      ]
+    },
+    "commute": {
+      "score": null,
+      "unknown_reason": "No address to route from; 'near the L' is not enough to time a trip"
+    },
+    "practical": {
+      "score": 7,
+      "rationale": "Laundry in building and dishwasher; cooling not shown.",
+      "evidence": [
+        {
+          "type": "text",
+          "quote": "Laundry in building"
+        }
+      ]
+    },
+    "outdoor": {
+      "score": 5,
+      "rationale": "Shared backyard with a grill.",
+      "evidence": [
+        {
+          "type": "text",
+          "quote": "Shared backyard with a grill"
+        },
+        {
+          "type": "photos",
+          "photos": [
+            8
+          ]
+        }
+      ]
+    }
+  }
+}

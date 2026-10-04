@@ -1,0 +1,41 @@
+{
+  "sweep": "streeteasy:0:2800-4400",
+  "total_results": 7,
+  "pages_read": 1,
+  "complete": true,
+  "capped": false,
+  "cards": [
+    {
+      "url": "https://streeteasy.com/building/demo-212-east-7-street/4b",
+      "title": "212 East 7th Street #4B",
+      "address": "212 East 7th Street #4B",
+      "rent": 3950,
+      "beds": 1,
+      "baths": 1,
+      "neighborhood": "East Village",
+      "snippet": "No fee. Laundry in building.",
+      "first_photo": "https://photos.example.com/demo/streeteasy-demo-212-east-7-street-4b/1.jpg"
+    },
+    {
+      "url": "https://streeteasy.com/building/demo-88-berry-street/6c",
+      "title": "88 Berry Street #6C",
+      "address": "88 Berry Street #6C",
+      "rent": 4300,
+      "beds": 1,
+      "baths": 1,
+      "neighborhood": "Williamsburg",
+      "snippet": "1 month free",
+      "first_photo": "https://photos.example.com/demo/streeteasy-demo-88-berry-street-6c/1.jpg"
+    },
+    {
+      "url": "https://streeteasy.com/building/demo-41-15-29-street/12f",
+      "title": "41-15 29th Street #12F",
+      "address": "41-15 29th Street #12F",
+      "rent": 3600,
+      "beds": 1,
+      "baths": 1,
+      "neighborhood": "Long Island City",
+      "first_photo": "https://photos.example.com/demo/streeteasy-demo-41-15-29-street-12f/1.jpg"
+    }
+  ]
+}

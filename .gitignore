@@ -1,0 +1,8 @@
+# Personal: your criteria and everything the scout has seen stay on your computer.
+/scout.config.yaml
+/data/
+/data-demo/
+
+__pycache__/
+*.pyc
+.DS_Store

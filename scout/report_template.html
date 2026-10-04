@@ -1,0 +1,535 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Rental Scout</title>
+<style>
+:root {
+  --bg: #f6f5f2; --panel: #ffffff; --ink: #1d1c1a; --muted: #6b6861; --line: #e3e0d9; --soft: #efede8;
+  --tour: #1f7a4d; --tour-bg: #e3f3ea; --watch: #9a6700; --watch-bg: #fbf0d5;
+  --pass: #6b6861; --pass-bg: #ebe9e4; --risk: #b3261e; --risk-bg: #fbe6e4; --link: #1a5fb4; --accent: #2b2a27;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #171614; --panel: #211f1d; --ink: #ece9e3; --muted: #a09b92; --line: #37342f; --soft: #2a2825;
+    --tour: #6fd3a0; --tour-bg: #173527; --watch: #e8bd5a; --watch-bg: #3a2e10;
+    --pass: #a09b92; --pass-bg: #2f2c28; --risk: #f2938c; --risk-bg: #43201d; --link: #8ab8f0; --accent: #ece9e3;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink);
+  font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+a { color: var(--link); }
+.wrap { max-width: 1040px; margin: 0 auto; padding: 24px 16px 80px; }
+header h1 { font-size: 24px; margin: 0; letter-spacing: -0.01em; }
+header .sub { color: var(--muted); margin-top: 2px; }
+.notice { margin-top: 12px; padding: 10px 12px; border-radius: 8px; background: var(--watch-bg); color: var(--ink);
+  border-left: 3px solid var(--watch); font-size: 14px; }
+.tabs { display: flex; gap: 6px; margin: 20px 0 12px; flex-wrap: wrap; }
+.tab { border: 1px solid var(--line); background: var(--panel); color: var(--ink); padding: 7px 14px; border-radius: 999px;
+  font: inherit; font-weight: 600; cursor: pointer; }
+.tab .n { color: var(--muted); font-weight: 500; margin-left: 4px; font-variant-numeric: tabular-nums; }
+.tab[aria-selected="true"] { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+.tab[aria-selected="true"] .n { color: inherit; opacity: .7; }
+.filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
+.filters input[type=search], .filters select { font: inherit; font-size: 14px; padding: 6px 8px; border-radius: 8px;
+  border: 1px solid var(--line); background: var(--panel); color: var(--ink); max-width: 100%; }
+.filters input[type=search] { flex: 1 1 180px; min-width: 140px; }
+.filters label.check { font-size: 14px; color: var(--muted); display: inline-flex; gap: 5px; align-items: center; cursor: pointer; }
+.empty { color: var(--muted); padding: 40px 0; text-align: center; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; margin-bottom: 10px; overflow: hidden; }
+.card.off { opacity: .62; }
+.head { display: grid; grid-template-columns: auto auto 1fr auto; gap: 14px; padding: 14px; cursor: pointer; align-items: start;
+  width: 100%; text-align: left; background: none; border: 0; color: inherit; font: inherit; }
+.head:focus-visible { outline: 2px solid var(--link); outline-offset: -2px; }
+.thumb { width: 132px; height: 96px; border-radius: 8px; object-fit: cover; background: var(--soft); display: block; }
+.thumbwrap { position: relative; }
+.thumbwrap .count { position: absolute; right: 5px; bottom: 5px; background: rgba(0,0,0,.62); color: #fff; font-size: 11px;
+  font-weight: 600; padding: 1px 6px; border-radius: 999px; }
+.linkrow { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+.linkrow a { font-size: 13px; text-decoration: none; padding: 5px 11px; border-radius: 999px; border: 1px solid var(--line);
+  background: var(--panel); color: var(--ink); white-space: nowrap; }
+.linkrow a.primary { background: var(--accent); border-color: var(--accent); color: var(--bg); font-weight: 600; }
+.linkrow a:hover { border-color: var(--muted); }
+.gallery { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 8px; margin-bottom: 16px; scrollbar-width: thin; }
+.shot { position: relative; flex: 0 0 auto; padding: 0; border: 0; background: var(--soft); border-radius: 8px; cursor: zoom-in;
+  overflow: hidden; width: 150px; height: 108px; }
+.shot img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.shot .no { position: absolute; left: 5px; top: 5px; background: rgba(0,0,0,.62); color: #fff; font-size: 11px; font-weight: 600;
+  padding: 0 6px; border-radius: 999px; }
+.shot.mini { width: 62px; height: 46px; border-radius: 6px; }
+.shot.broken::after { content: "image not available"; position: absolute; inset: 0; display: flex; align-items: center;
+  justify-content: center; text-align: center; font-size: 10px; color: var(--muted); padding: 4px; }
+.minis { display: flex; gap: 5px; flex-wrap: wrap; margin: 4px 0; }
+#lightbox { position: fixed; inset: 0; background: rgba(10,10,10,.93); display: none; z-index: 10; align-items: center;
+  justify-content: center; flex-direction: column; }
+#lightbox.on { display: flex; }
+#lightbox img { max-width: 94vw; max-height: 82vh; object-fit: contain; border-radius: 4px; background: #222; }
+#lightbox .cap { color: #ddd; font-size: 13px; margin-top: 10px; text-align: center; padding: 0 16px; }
+#lightbox .cap a { color: #9cc4f5; }
+#lightbox button { position: absolute; background: rgba(255,255,255,.12); color: #fff; border: 0; font-size: 22px; width: 44px;
+  height: 44px; border-radius: 50%; cursor: pointer; }
+#lb-prev { left: 12px; top: 50%; } #lb-next { right: 12px; top: 50%; } #lb-close { right: 12px; top: 12px; }
+.scorebox { width: 58px; height: 58px; border-radius: 10px; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; font-weight: 700; font-size: 19px; line-height: 1; font-variant-numeric: tabular-nums; }
+.scorebox small { font-size: 9px; font-weight: 700; letter-spacing: .06em; margin-top: 4px; }
+.v-TOUR { background: var(--tour-bg); color: var(--tour); }
+.v-WATCH { background: var(--watch-bg); color: var(--watch); }
+.v-PASS, .v-PENDING { background: var(--pass-bg); color: var(--pass); }
+.v-RISK { background: var(--risk-bg); color: var(--risk); }
+.title { font-weight: 650; font-size: 16px; overflow-wrap: anywhere; }
+.meta { color: var(--muted); font-size: 14px; }
+.reason { margin-top: 4px; font-size: 14px; overflow-wrap: anywhere; }
+.headline { font-style: italic; color: var(--muted); font-size: 14px; }
+.chips { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 6px; }
+.chip { font-size: 11px; font-weight: 700; letter-spacing: .03em; padding: 2px 7px; border-radius: 999px;
+  background: var(--soft); color: var(--muted); text-transform: uppercase; }
+.chip.new { background: var(--tour-bg); color: var(--tour); }
+.chip.warn { background: var(--watch-bg); color: var(--watch); }
+.chip.bad { background: var(--risk-bg); color: var(--risk); }
+.rent { text-align: right; white-space: nowrap; }
+.rent b { font-size: 17px; font-variant-numeric: tabular-nums; }
+.rent span { display: block; color: var(--muted); font-size: 12px; }
+.body { border-top: 1px solid var(--line); padding: 16px 14px; display: none; }
+.card.open .body { display: block; }
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+h3 { font-size: 12px; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); margin: 0 0 8px; }
+section { margin-bottom: 20px; min-width: 0; }
+.crit { margin-bottom: 12px; }
+.crit .row { display: flex; justify-content: space-between; gap: 8px; font-weight: 600; font-size: 14px; }
+.crit .row span:last-child { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.bar { height: 6px; background: var(--soft); border-radius: 3px; margin: 4px 0; overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+.bar.unknown { background: repeating-linear-gradient(45deg, var(--soft), var(--soft) 4px, var(--line) 4px, var(--line) 8px); }
+.crit p, .small { margin: 2px 0; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+.crit p.why { color: var(--ink); }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+td, th { text-align: left; padding: 5px 8px 5px 0; border-bottom: 1px solid var(--line); vertical-align: top; overflow-wrap: break-word; }
+th { color: var(--muted); font-weight: 600; }
+table.gate td:nth-child(3) { white-space: nowrap; }
+.st { font-weight: 700; font-size: 11px; letter-spacing: .04em; text-transform: uppercase; white-space: nowrap; }
+.st.pass { color: var(--tour); } .st.fail { color: var(--risk); } .st.unknown { color: var(--watch); }
+ul.plain { list-style: none; margin: 0; padding: 0; font-size: 14px; }
+ul.plain li { padding: 4px 0 4px 12px; border-left: 3px solid var(--line); margin-bottom: 5px; overflow-wrap: anywhere; }
+ul.plain li.risk { border-color: var(--risk); } ul.plain li.cost { border-color: var(--watch); }
+ul.plain li.good { border-color: var(--tour); }
+details { margin-top: 8px; } summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+.desc { white-space: pre-wrap; font-size: 13px; color: var(--muted); max-height: 260px; overflow: auto; margin-top: 6px; }
+.tell { background: var(--soft); border-radius: 8px; padding: 10px 12px; font-size: 13px; }
+.tell code { display: block; margin: 6px 0; white-space: pre-wrap; font: 12.5px ui-monospace, SFMono-Regular, Menlo, monospace; }
+.tell button { font: inherit; font-size: 12px; padding: 3px 10px; border-radius: 6px; border: 1px solid var(--line);
+  background: var(--panel); color: var(--ink); cursor: pointer; }
+footer { color: var(--muted); font-size: 12px; margin-top: 30px; }
+@media (max-width: 720px) {
+  .cols { grid-template-columns: 1fr; gap: 0; }
+  .head { grid-template-columns: auto 1fr; }
+  .thumbwrap { grid-column: 1 / -1; grid-row: 1; }
+  .thumb { width: 100%; height: 170px; }
+  .rent { grid-column: 2; text-align: left; }
+  .rent span { display: inline; margin-left: 6px; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Rental Scout</h1>
+    <div class="sub" id="sub"></div>
+    <div id="notices"></div>
+  </header>
+  <div class="tabs" role="tablist" id="tabs"></div>
+  <div class="filters">
+    <input type="search" id="q" placeholder="Search address, neighborhood, notes" aria-label="Search">
+    <select id="hood" aria-label="Neighborhood"></select>
+    <select id="beds" aria-label="Bedrooms"></select>
+    <select id="source" aria-label="Site"></select>
+    <select id="sort" aria-label="Sort by">
+      <option value="score">Sort: score</option>
+      <option value="rent">Sort: rent, low to high</option>
+      <option value="newest">Sort: newest first</option>
+      <option value="commute">Sort: commute</option>
+    </select>
+    <label class="check"><input type="checkbox" id="fresh"> New or changed in last run</label>
+    <label class="check"><input type="checkbox" id="offmarket"> Show off-market</label>
+  </div>
+  <main id="list"></main>
+  <footer id="foot"></footer>
+</div>
+<div id="lightbox" role="dialog" aria-modal="true" aria-label="Photo viewer">
+  <button type="button" id="lb-close" aria-label="Close">&times;</button>
+  <button type="button" id="lb-prev" aria-label="Previous">&lsaquo;</button>
+  <img id="lb-img" alt="">
+  <button type="button" id="lb-next" aria-label="Next">&rsaquo;</button>
+  <div class="cap" id="lb-cap"></div>
+</div>
+<script>
+"use strict";
+var DATA = /*__SCOUT_DATA__*/null;
+
+function esc(value) {
+  return String(value == null ? "" : value).replace(/[&<>"']/g, function (c) {
+    return {"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c];
+  });
+}
+function money(n) { return n == null ? "?" : "$" + Math.round(n).toLocaleString("en-US"); }
+function num(n) { return n == null ? "" : String(Math.round(n * 10) / 10); }
+function safeUrl(u) { return /^https?:\/\//i.test(u || "") ? u : null; }
+function link(u, text) {
+  var ok = safeUrl(u);
+  return ok ? '<a href="' + esc(ok) + '" target="_blank" rel="noopener noreferrer">' + esc(text || u) + "</a>" : esc(text || u);
+}
+// Images may be remote, or local copies under photos/ next to this file.
+function imgUrl(u) { return /^https?:\/\//i.test(u || "") || /^photos\/[\w.\/-]+$/.test(u || "") ? u : null; }
+// All of a listing's images in one numbered run: photos first, then floor plans.
+function images(l) {
+  return l.photos.map(function (p, i) { return {url: p.url, label: "Photo " + (i + 1) + (p.caption ? ": " + p.caption : "")}; })
+    .concat(l.floor_plans.map(function (p, i) { return {url: p.url, label: "Floor plan" + (l.floor_plans.length > 1 ? " " + (i + 1) : "") + (p.caption ? ": " + p.caption : "")}; }));
+}
+function shot(l, index, mini) {
+  var item = images(l)[index], url = item && imgUrl(item.url);
+  if (!url) return "";
+  var tag = index < l.photos.length ? String(index + 1) : "plan";
+  return '<button type="button" class="shot' + (mini ? " mini" : "") + '" data-shot="' + index + '" title="' + esc(item.label) + '">' +
+    '<img loading="lazy" alt="' + esc(item.label) + '" src="' + esc(url) + '" onerror="this.parentNode.classList.add(\'broken\');this.remove()">' +
+    '<span class="no">' + tag + "</span></button>";
+}
+// A link that scrolls the listing page to the quoted words (supported by Chrome and Edge).
+function quoteLink(l, quote) {
+  var base = safeUrl(l.page_url);
+  var text = "&ldquo;" + esc(quote) + "&rdquo;";
+  if (!base) return text;
+  return '<a href="' + esc(base.split("#")[0] + "#:~:text=" + encodeURIComponent(quote).replace(/-/g, "%2D")) +
+    '" target="_blank" rel="noopener noreferrer" title="Open the listing at these words">' + text + "</a>";
+}
+function siteName(s) { return (DATA.source_labels || {})[s] || s; }
+function tabOf(l) { return l.verdict === "PASS (risk)" ? "PASS" : l.verdict; }
+function vClass(l) { return l.verdict === "PASS (risk)" ? "v-RISK" : "v-" + l.verdict; }
+function isFresh(l) { return l.is_new || l.changed || l.verdict_changed; }
+
+var state = {tab: "TOUR", q: "", hood: "", beds: "", source: "", sort: "score", fresh: false, offmarket: false};
+var open = {};
+try { Object.assign(state, JSON.parse(localStorage.getItem("scout-report") || "{}")); } catch (e) {}
+function remember() { try { localStorage.setItem("scout-report", JSON.stringify(state)); } catch (e) {} }
+
+function passesFilters(l, ignoreTab) {
+  if (!ignoreTab && state.tab !== "ALL" && tabOf(l) !== state.tab) return false;
+  if (!state.offmarket && l.off_market) return false;
+  if (state.fresh && !isFresh(l)) return false;
+  if (state.hood && l.neighborhood !== state.hood) return false;
+  if (state.beds !== "" && String(l.beds) !== state.beds) return false;
+  if (state.source && !l.sources.some(function (s) { return s.source === state.source; })) return false;
+  if (state.q) {
+    var hay = [l.title, l.neighborhood, l.reason, l.headline, l.id, l.status].join(" ").toLowerCase();
+    if (hay.indexOf(state.q.toLowerCase()) < 0) return false;
+  }
+  return true;
+}
+
+var sorters = {
+  score: function (a, b) { return (b.score == null ? -1 : b.score) - (a.score == null ? -1 : a.score) || (a.rent_net || 1e9) - (b.rent_net || 1e9); },
+  rent: function (a, b) { return (a.rent_net || 1e9) - (b.rent_net || 1e9); },
+  newest: function (a, b) { return a.first_seen < b.first_seen ? 1 : a.first_seen > b.first_seen ? -1 : 0; },
+  commute: function (a, b) { return (a.commute == null ? 1e9 : a.commute) - (b.commute == null ? 1e9 : b.commute); }
+};
+
+function chips(l) {
+  var out = [];
+  if (l.is_new) out.push('<span class="chip new">New</span>');
+  if (l.changed === "price_changed") out.push('<span class="chip new">Price changed</span>');
+  if (l.changed === "relisted") out.push('<span class="chip new">Relisted</span>');
+  if (l.verdict_changed) out.push('<span class="chip new">Verdict changed</span>');
+  if (l.off_market) out.push('<span class="chip">Off market</span>');
+  if (l.status !== "active" && l.status !== "delisted") out.push('<span class="chip">' + esc(l.status) + "</span>");
+  if (l.stage === "needs_enrich" && l.verdict !== "PENDING") out.push('<span class="chip warn">Re-check queued</span>');
+  if (l.stage === "needs_score" && l.verdict !== "PENDING") out.push('<span class="chip warn">Re-score queued</span>');
+  var risk = l.flags.filter(function (f) { return f.kind === "risk"; }).length;
+  var cost = l.flags.filter(function (f) { return f.kind === "cost"; }).length;
+  if (risk) out.push('<span class="chip bad">' + risk + " risk flag" + (risk > 1 ? "s" : "") + "</span>");
+  if (cost) out.push('<span class="chip warn">' + cost + " cost note" + (cost > 1 ? "s" : "") + "</span>");
+  if (l.unknown_weight > 0) out.push('<span class="chip warn">' + Math.round(l.unknown_weight * 100) + "% unverified</span>");
+  l.flags.forEach(function (f) { if (f.kind === "good") out.push('<span class="chip new">' + esc(f.id.replace(/_/g, " ")) + "</span>"); });
+  return out.length ? '<div class="chips">' + out.join("") + "</div>" : "";
+}
+
+function metaLine(l) {
+  var bits = [];
+  if (l.neighborhood) bits.push(esc(l.neighborhood));
+  if (l.beds != null) bits.push(l.beds === 0 ? "Studio" : num(l.beds) + " bd");
+  if (l.baths != null) bits.push(num(l.baths) + " ba");
+  if (l.sqft != null) bits.push(Math.round(l.sqft).toLocaleString("en-US") + " sq ft");
+  if (l.commute != null) bits.push(num(l.commute) + " min commute");
+  if (l.available) bits.push("avail. " + esc(l.available));
+  return bits.join(" &middot; ");
+}
+
+function evidenceHtml(l, c) {
+  var items = (c.evidence || []).map(function (e) {
+    var name = "<b>" + esc(e.type.replace(/_/g, " ")) + ":</b> ", note = e.note ? " &mdash; " + esc(e.note) : "", what, minis = "";
+    if (e.type === "text") what = quoteLink(l, e.quote);
+    else if (e.type === "photos" && e.photos) {
+      what = e.photos.join(", ");
+      minis = '<div class="minis">' + e.photos.map(function (n) { return shot(l, n - 1, true); }).join("") + "</div>";
+    } else if (e.type === "floor_plan" && l.floor_plans.length) {
+      what = esc(e.ref || "saved plan");
+      minis = '<div class="minis">' + shot(l, l.photos.length, true) + "</div>";
+    } else what = link(e.ref, safeUrl(e.ref) ? "open the view" : e.ref);
+    return "<p>" + name + what + note + "</p>" + minis;
+  });
+  (c.unavailable || []).forEach(function (u) {
+    items.push("<p><b>" + esc(u.type.replace(/_/g, " ")) + " not available:</b> " + esc(u.reason) + "</p>");
+  });
+  return items.join("");
+}
+
+function scorecard(l) {
+  if (!l.criteria.length) return "";
+  var rows = l.criteria.map(function (c) {
+    var known = c.score != null;
+    return '<div class="crit"><div class="row"><span>' + esc(c.label) + ' <span class="small">' + Math.round(c.weight * 100) +
+      "%</span></span><span>" + (known ? num(c.score) + " / 10" : "unknown") + "</span></div>" +
+      '<div class="bar' + (known ? "" : " unknown") + '">' + (known ? '<i style="width:' + c.score * 10 + '%"></i>' : "") + "</div>" +
+      (known ? '<p class="why">' + esc(c.rationale) + "</p>" : "<p>" + esc(c.unknown_reason || "Not scored yet") + "</p>") +
+      evidenceHtml(l, c) + "</div>";
+  }).join("");
+  var range = l.unknown_weight > 0 ? '<p class="small">Score ' + num(l.score) + " counts only what could be verified. Range if the unknowns were settled: " +
+    num(l.floor) + " to " + num(l.ceiling) + ".</p>" : "";
+  return "<section><h3>Scorecard</h3>" + rows + range + "</section>";
+}
+
+function gateTable(l) {
+  if (!l.gate.length) return "";
+  return "<section><h3>Must-haves</h3><table class='gate'>" + l.gate.map(function (r) {
+    var note = r.status === "unknown" && r.counted_as !== "unknown" ? " (counted as " + r.counted_as + ")" : "";
+    return '<tr><td class="st ' + esc(r.status) + '">' + esc(r.status) + "</td><td>" + esc(r.label) +
+      (r.dealbreaker ? ' <span class="small">dealbreaker</span>' : "") + "</td><td>" + esc(r.actual) + esc(note) +
+      '</td><td class="small">needs ' + esc(r.expected) + "</td></tr>";
+  }).join("") + "</table></section>";
+}
+
+function flagList(l) {
+  if (!l.flags.length) return "";
+  return "<section><h3>Worth knowing</h3><ul class='plain'>" + l.flags.map(function (f) {
+    return '<li class="' + esc(f.kind) + '">' + esc(f.message) + "</li>";
+  }).join("") + "</ul></section>";
+}
+
+function questions(l) {
+  if (!l.questions.length) return "";
+  return "<section><h3>Questions for you to ask</h3><ul class='plain'>" + l.questions.map(function (q) {
+    return "<li>" + esc(q) + "</li>";
+  }).join("") + "</ul></section>";
+}
+
+function money3(l) {
+  if (l.rent_gross == null && l.rent_net == null) return "";
+  var rows = [["Net effective (used for ranking)", l.rent_net], ["Gross (what you pay each month)", l.rent_gross]];
+  if (l.all_in != null && l.rent_net != null && Math.abs(l.all_in - l.rent_net) >= 1) rows.push(["With broker fee spread over the lease", l.all_in]);
+  return "<section><h3>Rent</h3><table>" + rows.map(function (r) {
+    return "<tr><td>" + r[0] + "</td><td><b>" + (r[1] == null ? "unknown" : money(r[1])) + "</b></td></tr>";
+  }).join("") + "</table></section>";
+}
+
+function sourcesHtml(l) {
+  var rows = l.sources.map(function (s) {
+    return "<tr><td>" + link(s.url, siteName(s.source)) + "</td><td>" + money(s.rent) + "</td><td class='small'>" + (s.active ? "live" : "gone") + "</td></tr>";
+  }).join("");
+  var hist = l.price_history.length > 1 ? "<details><summary>Price history</summary><table>" + l.price_history.map(function (p) {
+    return "<tr><td>" + esc(p.date) + "</td><td>" + esc(siteName(p.source)) + "</td><td>" + money(p.rent) + "</td></tr>";
+  }).join("") + "</table></details>" : "";
+  return "<section><h3>Where it is listed</h3><table>" + rows + "</table>" + hist +
+    '<p class="small">First seen ' + esc(l.first_seen) + ", last seen " + esc(l.last_seen) + ".</p></section>";
+}
+
+function factsHtml(l) {
+  if (!l.facts.length) return "";
+  return "<details><summary>Every fact recorded, and where it came from</summary><table><tr><th>Fact</th><th>Value</th><th>Seen</th></tr>" +
+    l.facts.map(function (f) {
+      return "<tr><td>" + esc(f.name) + "</td><td>" + (f.value == null ? '<span class="st unknown">unknown</span>' : esc(f.value)) +
+        '</td><td class="small">' + esc(f.where || "") + (f.quote ? " " + quoteLink(l, f.quote) : "") + "</td></tr>";
+    }).join("") + "</table></details>";
+}
+
+function tellClaude(l) {
+  var text = "I toured " + l.title + " (" + l.id + "). I would / would not rent it because ...";
+  var past = (l.feedback || []).map(function (f) {
+    return '<p class="small">Your verdict on ' + esc(f.at.slice(0, 10)) + ": " + (f.would_rent ? "would rent" : "would not rent") + ". " + esc(f.why) + "</p>";
+  }).join("");
+  return '<section><h3>After a tour</h3><div class="tell">Tell Claude how it went, so the scout learns your taste:<code>' + esc(text) +
+    '</code><button type="button" data-copy="' + esc(text) + '">Copy</button></div>' + past + "</section>";
+}
+
+function linkRow(l) {
+  var out = l.sources.filter(function (s) { return safeUrl(s.url); }).map(function (s) {
+    return '<a class="primary" href="' + esc(s.url) + '" target="_blank" rel="noopener noreferrer">' + (s.active ? "Open on " : "Was on ") + esc(siteName(s.source)) + " &#8599;</a>";
+  });
+  l.links.forEach(function (k) {
+    if (safeUrl(k.url)) out.push('<a href="' + esc(k.url) + '" target="_blank" rel="noopener noreferrer"' + (k.note ? ' title="' + esc(k.note) + '"' : "") + ">" + esc(k.label) + " &#8599;</a>");
+  });
+  return out.length ? '<div class="linkrow">' + out.join("") + "</div>" : "";
+}
+
+function gallery(l) {
+  var all = images(l);
+  if (!all.length) return l.photos_unavailable_reason ? '<p class="small">No photos saved: ' + esc(l.photos_unavailable_reason) + "</p>" : "";
+  return '<div class="gallery">' + all.map(function (_, i) { return shot(l, i, false); }).join("") + "</div>";
+}
+
+function cardHtml(l) {
+  var label = l.verdict === "PASS (risk)" ? "RISK" : l.verdict;
+  var concession = l.rent_gross != null && l.rent_net != null && l.rent_gross - l.rent_net >= 1;
+  var photo = l.photos.length ? imgUrl(l.photos[0].url) : null;
+  return '<article class="card' + (l.off_market ? " off" : "") + (open[l.id] ? " open" : "") + '" id="' + esc(l.id) + '" data-id="' + esc(l.id) + '">' +
+    '<button class="head" type="button" aria-expanded="' + (open[l.id] ? "true" : "false") + '">' +
+    '<div class="thumbwrap">' + (photo ? '<img class="thumb" loading="lazy" alt="" src="' + esc(photo) + '" onerror="this.parentNode.remove()">' +
+      (l.photos.length > 1 ? '<span class="count">' + l.photos.length + " photos</span>" : "") : "") + "</div>" +
+    '<div class="scorebox ' + vClass(l) + '">' + (l.score != null ? num(l.score) : "&ndash;") + "<small>" + esc(label) + "</small></div>" +
+    '<div><div class="title">' + esc(l.title) + '</div><div class="meta">' + metaLine(l) + "</div>" +
+    '<div class="reason">' + esc(l.reason || (l.stage === "needs_enrich" ? "Waiting to be opened" : "Waiting to be scored")) + "</div>" +
+    (l.headline ? '<div class="headline">' + esc(l.headline) + "</div>" : "") + chips(l) + "</div>" +
+    '<div class="rent"><b>' + money(l.rent_net) + "</b><span>" + (concession ? "net &middot; " + money(l.rent_gross) + " gross" : "per month") + "</span></div>" +
+    "</button>" +
+    '<div class="body">' + linkRow(l) + gallery(l) + '<div class="cols"><div>' + scorecard(l) + questions(l) + '</div><div>' + flagList(l) + gateTable(l) + money3(l) + sourcesHtml(l) +
+    (l.verdict === "TOUR" || l.verdict === "WATCH" || l.feedback.length ? tellClaude(l) : "") + "</div></div>" +
+    (l.address_unknown_reason ? '<p class="small">Address not known: ' + esc(l.address_unknown_reason) + "</p>" : "") +
+    factsHtml(l) + (l.description ? '<details><summary>Listing text as saved</summary><div class="desc">' + esc(l.description) + "</div></details>" : "") +
+    "</div></article>";
+}
+
+function fillSelect(id, label, values, show) {
+  var el = document.getElementById(id);
+  el.innerHTML = '<option value="">' + label + "</option>" + values.map(function (v) {
+    return '<option value="' + esc(v) + '">' + esc(show ? show(v) : v) + "</option>";
+  }).join("");
+  if (values.map(String).indexOf(String(state[id])) < 0) state[id] = "";
+  el.value = state[id];
+}
+function uniq(list) { return list.filter(function (v, i) { return v != null && v !== "" && list.indexOf(v) === i; }); }
+
+function renderTabs() {
+  var names = [["TOUR", "Tour"], ["WATCH", "Watch"], ["PASS", "Pass"], ["PENDING", "Waiting"], ["ALL", "All"]];
+  document.getElementById("tabs").innerHTML = names.map(function (t) {
+    var n = DATA.listings.filter(function (l) { return passesFilters(l, true) && (t[0] === "ALL" || tabOf(l) === t[0]); }).length;
+    if (t[0] === "PENDING" && !n && state.tab !== "PENDING") return "";
+    return '<button class="tab" role="tab" type="button" data-tab="' + t[0] + '" aria-selected="' + (state.tab === t[0]) + '">' + t[1] + '<span class="n">' + n + "</span></button>";
+  }).join("");
+}
+
+function render() {
+  renderTabs();
+  var rows = DATA.listings.filter(function (l) { return passesFilters(l); }).sort(sorters[state.sort] || sorters.score);
+  document.getElementById("list").innerHTML = rows.length ? rows.map(cardHtml).join("") :
+    '<div class="empty">Nothing here' + (state.q || state.hood || state.beds !== "" || state.source || state.fresh ? " with these filters." : " yet.") + "</div>";
+  remember();
+}
+
+function header() {
+  var run = DATA.last_run;
+  var who = (DATA.name ? esc(DATA.name) + " &middot; " : "") + esc(DATA.city);
+  if (!run) { document.getElementById("sub").innerHTML = who + " &middot; no runs yet"; return; }
+  var c = run.counts;
+  document.getElementById("sub").innerHTML = who + " &middot; last run " + esc(run.finished_at.slice(0, 10)) + ": " + c.cards + " seen, " + c["new"] +
+    " new, " + c.price_changed + " price change" + (c.price_changed === 1 ? "" : "s") + ", " + run.evaluated + " opened, " + run.scored + " scored";
+  var notes = [];
+  Object.keys(run.blocked || {}).forEach(function (s) {
+    notes.push(esc(siteName(s)) + " blocked the browser (" + esc(run.blocked[s].what) + "). The scout stopped using it for that run.");
+  });
+  (run.notes || []).forEach(function (n) { notes.push(esc(n)); });
+  if (run.left_to_open) notes.push(run.left_to_open + " listing" + (run.left_to_open === 1 ? "" : "s") + " waiting to be opened next run.");
+  document.getElementById("notices").innerHTML = notes.map(function (n) { return '<div class="notice">' + n + "</div>"; }).join("");
+}
+
+var viewer = null;
+function showPhoto(id, index) {
+  var l = DATA.listings.filter(function (x) { return x.id === id; })[0];
+  if (!l) return;
+  var all = images(l);
+  if (!all.length) return;
+  viewer = {listing: l, index: (index + all.length) % all.length};
+  var item = all[viewer.index];
+  document.getElementById("lb-img").src = imgUrl(item.url) || "";
+  document.getElementById("lb-img").alt = item.label;
+  document.getElementById("lb-cap").innerHTML = esc(l.title) + " &middot; " + esc(item.label) +
+    (viewer.index < l.photos.length ? " (" + (viewer.index + 1) + " of " + l.photos.length + ")" : "") +
+    (safeUrl(item.url) ? " &middot; " + link(item.url, "open original") : "");
+  document.getElementById("lightbox").classList.add("on");
+}
+function stepPhoto(by) { if (viewer) showPhoto(viewer.listing.id, viewer.index + by); }
+function hidePhoto() { viewer = null; document.getElementById("lightbox").classList.remove("on"); document.getElementById("lb-img").removeAttribute("src"); }
+
+// report.html#<listing id> opens that scorecard, whatever tab or filters were last used.
+function followHash() {
+  var id = decodeURIComponent((location.hash || "").slice(1));
+  var l = DATA.listings.filter(function (x) { return x.id === id; })[0];
+  if (!l) return false;
+  if (!passesFilters(l)) {
+    Object.assign(state, {tab: tabOf(l), q: "", hood: "", beds: "", source: "", fresh: false, offmarket: state.offmarket || l.off_market});
+    ["q", "hood", "beds", "source"].forEach(function (k) { document.getElementById(k).value = ""; });
+    document.getElementById("fresh").checked = false;
+    document.getElementById("offmarket").checked = state.offmarket;
+  }
+  open[id] = true;
+  render();
+  var el = document.getElementById(id);
+  if (el) el.scrollIntoView({block: "start"});
+  return true;
+}
+
+function init() {
+  if (!DATA) { document.getElementById("list").innerHTML = '<div class="empty">No data.</div>'; return; }
+  header();
+  fillSelect("hood", "All neighborhoods", uniq(DATA.listings.map(function (l) { return l.neighborhood; })).sort());
+  fillSelect("beds", "Any bedrooms", uniq(DATA.listings.map(function (l) { return l.beds; })).sort(function (a, b) { return a - b; }),
+    function (v) { return v === 0 ? "Studio" : v + " bedroom" + (v === 1 ? "" : "s"); });
+  fillSelect("source", "All sites", uniq([].concat.apply([], DATA.listings.map(function (l) { return l.sources.map(function (s) { return s.source; }); }))).sort(), siteName);
+  document.getElementById("q").value = state.q;
+  document.getElementById("sort").value = state.sort;
+  document.getElementById("fresh").checked = state.fresh;
+  document.getElementById("offmarket").checked = state.offmarket;
+  ["q", "hood", "beds", "source", "sort"].forEach(function (id) {
+    document.getElementById(id).addEventListener("input", function (e) { state[id] = e.target.value; render(); });
+  });
+  ["fresh", "offmarket"].forEach(function (id) {
+    document.getElementById(id).addEventListener("change", function (e) { state[id] = e.target.checked; render(); });
+  });
+  document.getElementById("tabs").addEventListener("click", function (e) {
+    var b = e.target.closest("[data-tab]");
+    if (b) { state.tab = b.getAttribute("data-tab"); render(); }
+  });
+  document.getElementById("list").addEventListener("click", function (e) {
+    var copy = e.target.closest("[data-copy]");
+    if (copy) {
+      var text = copy.getAttribute("data-copy");
+      if (navigator.clipboard) navigator.clipboard.writeText(text).then(function () { copy.textContent = "Copied"; }, function () {});
+      return;
+    }
+    var pic = e.target.closest("[data-shot]");
+    if (pic) { showPhoto(pic.closest(".card").getAttribute("data-id"), Number(pic.getAttribute("data-shot"))); return; }
+    var head = e.target.closest(".head");
+    if (!head) return;
+    var card = head.parentNode, id = card.getAttribute("data-id");
+    open[id] = !open[id];
+    card.classList.toggle("open", open[id]);
+    head.setAttribute("aria-expanded", open[id] ? "true" : "false");
+    if (open[id] && history.replaceState) history.replaceState(null, "", "#" + encodeURIComponent(id));
+  });
+  document.getElementById("lb-close").addEventListener("click", hidePhoto);
+  document.getElementById("lb-prev").addEventListener("click", function () { stepPhoto(-1); });
+  document.getElementById("lb-next").addEventListener("click", function () { stepPhoto(1); });
+  document.getElementById("lightbox").addEventListener("click", function (e) { if (e.target === this) hidePhoto(); });
+  document.addEventListener("keydown", function (e) {
+    if (!viewer) return;
+    if (e.key === "Escape") hidePhoto();
+    if (e.key === "ArrowLeft") stepPhoto(-1);
+    if (e.key === "ArrowRight") stepPhoto(1);
+  });
+  window.addEventListener("hashchange", followHash);
+  document.getElementById("foot").innerHTML = "Generated " + esc(DATA.generated_at.replace("T", " ").replace("Z", " UTC")) + " from data/store.json. TOUR is " +
+    DATA.thresholds.tour + "+, WATCH is " + DATA.thresholds.watch + "+. The scout never contacts anyone: tours and applications are yours to start.";
+  if (!followHash()) render();
+}
+init();
+</script>
+</body>
+</html>

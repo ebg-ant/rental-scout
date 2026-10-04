@@ -1,0 +1,9 @@
+Refresh my rental shortlist in this folder. Do not look for new listings.
+
+Read agent/RUNBOOK.md and follow it exactly, including its hard rules. Use my logged-in Chrome. Run `python3 -m scout refresh` to queue my live TOUR and WATCH listings, then `python3 -m scout start --no-sweep`, then keep running `python3 -m scout next` and doing what it says until it tells you to finish, then run `python3 -m scout finish`.
+
+For each listing, read the page afresh: is it still up, has the rent or concession changed, is the availability date the same, are there new photos? If the page is gone or marked rented, hand in {"id": "...", "gone": true}.
+
+If a site shows a CAPTCHA, block page or login screen, report it with `python3 -m scout blocked` and carry on. Never contact anyone, submit any form, or enter credentials.
+
+End with a short message: what changed (gone, re-priced, verdict changed), and what is still standing.
