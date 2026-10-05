@@ -44,7 +44,9 @@ def origin_source(cfg, url, declared):
 def derive_source_id(url):
     parts = urlsplit(url or "")
     path = parts.path.rstrip("/")
-    for pattern in (r"(\d+)_zpid", r"/(\d{8,})\.html$", r"/rental/(\d+)$", r"/building/(.+)$"):
+    # Craigslist moved from .../<digits>.html to .../view/d/<slug>/<post id>; the slug can change on a repost.
+    for pattern in (r"(\d+)_zpid", r"/(\d{8,})\.html$", r"/view/d/[^/]+/([A-Za-z0-9_-]{16,})$", r"/rental/(\d+)$",
+                    r"/building/(.+)$"):
         found = re.search(pattern, path)
         if found:
             return found.group(1)
@@ -162,11 +164,12 @@ def _card_values(cfg, rec):
 
 
 def criteria_to_score(cfg, rec):
-    """Criterion ids with no current score: never scored, or their wording changed."""
+    """Criterion ids with no current score: never scored, or their wording changed.
+    A criterion weighted 0 is switched off: it cannot move the total, so it is never asked for."""
     scores = (rec.get("rubric") or {}).get("scores") or {}
     hashes = cfg.criterion_hashes()
-    return [c["id"] for c in cfg.rubric
-            if c["id"] not in scores or scores[c["id"]].get("hash") != hashes[c["id"]]]
+    return [c["id"] for c in cfg.rubric if c["weight"] > 0
+            and (c["id"] not in scores or scores[c["id"]].get("hash") != hashes[c["id"]])]
 
 
 def _incomplete(cfg, rec):

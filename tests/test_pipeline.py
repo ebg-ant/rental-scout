@@ -809,6 +809,16 @@ class ConfigChanges(PipelineCase):
         task = self.agent.call(pipeline.next_task)
         self.assertEqual((task["task"], [c["id"] for c in task["criteria"]]), ("score", ["outdoor"]))
 
+    def test_switched_off_criterion_is_not_asked_for(self):
+        def change(raw):
+            raw["rubric"][0]["weight"] = 0.35
+            raw["rubric"][5].update(weight=0, guidance="Private outdoor space only.")
+        self.rejudge(change)
+        self.assertEqual(self.listings()[E7]["stage"], "done")
+        # Turning it back on asks for it, because it has never been scored with these words.
+        self.rejudge(lambda raw: raw["rubric"][5].update(guidance="Private outdoor space only."))
+        self.assertEqual(self.listings()[E7]["stage"], "needs_score")
+
     def test_start_notices_a_changed_config_by_itself(self):
         self.agent.cfg = make_config(lambda raw: raw["verdicts"]["tour"].update(min_score=70))
         self.clock.jump_to("2026-10-06T13:00:00")
