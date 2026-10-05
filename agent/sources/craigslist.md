@@ -16,14 +16,20 @@ Notes for Craigslist:
    page before, and it is one click on the forward arrow. If not, open the URL (page 1) and click
    forward, waiting `wait_between_clicks_seconds` before each click.
 4. List view is quickest to read. `last_page` is true when the forward arrow is greyed out.
+   The newer site redirects to `www.craigslist.org/search/subarea/<sub>?cat=apa...` and loads every result
+   on one page with no forward arrow (the "1 - 8 of 153" counter is what is in view, not a page). Then hand
+   in every card at once with `"last_page": true`.
 5. A normal page that says "no results" is not a block. Hand in `"cards": []` with `"last_page": true`.
 
 ## Cards
 
-- `url` ends in `/<digits>.html`; the scout takes the id from there.
+- `url` ends in `/<digits>.html`, or on the newer site `/view/d/<slug>/<post id>`; the scout takes the id
+  from the digits or the last segment.
 - `title` is the post title, exactly. Prefilters read it, and it is how reposts are spotted.
 - `neighborhood` is the text in brackets after the title.
 - Most posts have no address on the card. Leave `address` out.
+- A borough search also returns posts from elsewhere (other neighborhoods, other states). Hand them in as
+  shown, with `neighborhood` exactly as the card gives it, so the area check can see where they are.
 
 ## When opening a post (enrich)
 
