@@ -23,3 +23,16 @@ Notes for Zillow:
 - Building cards ("$3,200+ 1 bd", one card for many units) have no unit. Use the building address,
   the lowest price shown for an acceptable bedroom count, and put the price line in `snippet`.
   The unit is chosen when the page is opened.
+
+## When opening a listing (enrich)
+
+- Single-unit pages (`/homedetails/`): the facts the page shows are also in its `__NEXT_DATA__` script,
+  under `gdpClientCache` (a JSON string), in the entry that has `property`: `description`, `resoFacts`
+  (`appliances`, `laundryFeatures`, `atAGlanceFacts`, `interiorFeatures`, where "Elevator" appears) and
+  `latitude`/`longitude`. Quote from the description or the facts as the page words them.
+- Building pages (`/b/...`, `/apartments/...`) list units in a table and are often silent on laundry,
+  elevator and appliances. Silence there is unknown, not absent. A building-level fact (elevator, laundry
+  room) may be settled by another listing for the same building, such as a StreetEasy unit page; give that
+  page's URL as provenance. Facts about the unit itself (washer/dryer in the unit) may not.
+- The units table shows only the first rows. Use the cheapest unit that meets the bedroom minimum if one is
+  shown; otherwise record the summary price ("2 bed $5,572+") and leave the unit unknown.

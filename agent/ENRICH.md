@@ -104,7 +104,9 @@ other rent figure as unknown too, rather than assuming there is no concession.
 
 **Broker fee.** `tenant_pays_broker_fee` is true only if the page asks the tenant for a broker fee.
 "No fee" is false. Record `broker_fee_amount` in dollars if it can be read or worked out from a
-stated percentage of annual rent (say so in provenance).
+stated percentage of annual rent (say so in provenance). A site-wide notice that tenants cannot be charged
+a broker fee (StreetEasy shows one on every NYC listing) is not the listing's terms: leave the fact unknown
+unless the listing itself says.
 
 **Floor and elevator.** Ground floor is 1. A unit number is a hint, not proof: "4B" with "fourth
 floor" in the text is proof. `elevator: false` needs "walk-up" or a complete amenities list without
@@ -140,6 +142,8 @@ headshots, logos, maps and ads. `photo_count` is the number the listing has, eve
 **Photo age.** `photos_recency` is `stale` if there is a visible old date stamp, the season or
 furniture conflicts between photos, the finishes differ from the description, or the same set
 appears on an older listing for the building. `recent` needs some positive sign. Otherwise unknown.
+A virtually staged photo shows furniture that is not there: say so in its caption and ask for the empty room
+in `questions`. It is not evidence of size or layout.
 
 **Scam signals.** Set `owner_remote`, `asks_deposit_before_viewing` or `photos_reused_elsewhere` to
 true only when you saw it. Leave them out otherwise.

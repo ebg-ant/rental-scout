@@ -53,6 +53,8 @@ Mechanics:
 - Write each JSON payload to `data/tmp/<something>.json` and pass the path. Working examples are in
   `agent/examples/`.
 - If `wait_seconds` is above 0, wait that long (`sleep N`) before loading the page.
+- Some browser tools cut long results short (about 1,000 characters). Read a page into short one-line-per-card
+  pieces over several reads, and never fill a gap from memory: `raw_text` and quotes must be word for word.
 - Keep one tab per site and leave it where it is between tasks. The scout moves between sites so that one
   site's wait is spent reading another, and on a site with only a pager it counts on the tab still being on
   the page you last read.

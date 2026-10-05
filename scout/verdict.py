@@ -10,8 +10,8 @@ ORDER = {TOUR: 0, WATCH: 1, PASS_RISK: 2, PASS: 3}
 
 
 def _highlights(cfg, scores):
-    scored = [(scores[c["id"]]["score"], c["label"]) for c in cfg.rubric
-              if scores.get(c["id"]) and scores[c["id"]].get("score") is not None
+    scored = [(scores[c["id"]]["score"], c["label"]) for c in cfg.rubric if c["weight"] > 0
+              and scores.get(c["id"]) and scores[c["id"]].get("score") is not None
               and not scores[c["id"]].get("stale")]
     if not scored:
         return ""

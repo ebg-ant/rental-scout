@@ -325,6 +325,19 @@ class RubricTests(unittest.TestCase):
         self.assertIsNone(rubric.totals(self.cfg, {})["score"])
 
 
+class SourceIdTests(unittest.TestCase):
+    def test_listing_ids_from_urls(self):
+        self.assertEqual(pipeline.derive_source_id("https://www.zillow.com/homedetails/x/2113451500_zpid/"), "2113451500")
+        self.assertEqual(pipeline.derive_source_id("https://newyork.craigslist.org/mnh/apa/d/new-york-2br/7900000003.html"),
+                         "7900000003")
+        # Craigslist's newer post links: the slug is the title, the last segment is the post.
+        self.assertEqual(pipeline.derive_source_id(
+            "https://www.craigslist.org/view/d/new-york-rent-stabilized-huge-bedroom/oWsKVyuV54DbmVQpdCK7hM"),
+            "oWsKVyuV54DbmVQpdCK7hM")
+        self.assertEqual(pipeline.derive_source_id("https://www.craigslist.org/view/d/other-title/lq-eMrm-8RGYb9FMoVcXoA"),
+                         "lq-eMrm-8RGYb9FMoVcXoA")
+
+
 class VerdictTests(unittest.TestCase):
     def setUp(self):
         self.cfg = make_config()
@@ -364,6 +377,17 @@ class VerdictTests(unittest.TestCase):
         rejected = verdict.decide(self.cfg, {"result": "reject", "reason": "Sublet", "matched": "sublet"},
                                   None, None, [], {}, None)
         self.assertEqual(rejected, ("PASS", 'Filtered out: Sublet ("sublet")'))
+
+    def test_switched_off_criterion_is_never_named(self):
+        def outdoor_off(raw):
+            for crit in raw["rubric"]:
+                crit["weight"] = {"light": 0.35, "outdoor": 0}.get(crit["id"], crit["weight"])
+        cfg = make_config(outdoor_off)
+        scores = full_scores(cfg, 8)
+        scores["outdoor"] = {"score": 0}
+        _, reason = verdict.decide(cfg, {"result": "pass"}, None, self.open_gate, [], scores, rubric.totals(cfg, scores))
+        self.assertNotIn("Outdoor", reason)
+        self.assertEqual(rubric.totals(cfg, scores)["score"], 80.0)
 
     def test_not_judged_yet(self):
         self.assertEqual(verdict.decide(self.cfg, {"result": "pass"}, None, None, [], {}, None), (None, None))

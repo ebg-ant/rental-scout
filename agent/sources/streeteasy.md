@@ -54,3 +54,18 @@ The task's `mode` tells you which this is. You read the page the same way either
 - `incremental`: the daily top-up. Newest first; the scout stops at the first page with nothing new.
 - `full`: every page, on the first run and about once a week. It is how price changes on older
   listings and listings that have gone are noticed. A long one is spread over several runs.
+
+## Featured and sponsored cards
+
+They repeat on every page and in every price band, and can fall outside both the band and the search area
+(an Astoria card in a Manhattan search). Hand them in with the price the card shows; the scout dedupes them.
+
+## When opening a listing (enrich)
+
+- "Show full description" may not expand in place. The full text is also in the page's schema.org
+  `RealEstateListing` description, in a script tag. Quote from that text.
+- "No info on building amenities" means the building section is thin: elevator and laundry stay unknown
+  unless the description says. A building section that lists amenities is complete; something missing from
+  it is absent.
+- Every NYC listing shows the same notice: "Under NYC law, you can't be charged a broker fee if you didn't
+  hire a broker." That is not the listing's fee terms; see Broker fee in `agent/ENRICH.md`.

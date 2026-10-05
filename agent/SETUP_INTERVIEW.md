@@ -74,6 +74,7 @@ Set `craigslist.subareas` to the boroughs those neighborhoods are in.
 | --- | --- |
 | With no elevator, what is the highest floor you would climb to? [3] | `gate.rules[walkup].value` |
 | Laundry: must be in the unit, in the building is fine [default], or do not care? | `gate.rules[laundry].value`, or `enabled: false` |
+| (if in the unit) Is a listing without it an instant no, or a mark against it [default]? | instant no: `dealbreaker: true` on `laundry` |
 | Anything else that is an absolute must or an absolute no? | A new gate rule (example below). `python3 -m scout fields` lists what can be tested (dishwasher, outdoor, doorman, level, ...). If nothing fits, add a `custom_fields` entry and a rule on it |
 
 A new rule looks like this. "Absolute" means `dealbreaker: true`; "I would really like" means leave that line
@@ -121,6 +122,13 @@ Ask the user to do this in their own browser, logged in, and paste you the addre
   the long URL containing `searchQueryState=`.
 - Craigslist needs no URL. Set `params.min_bedrooms` to their minimum.
 
+Put every instant-no must-have that a site can filter on into that site's search as well: washer/dryer in
+the unit, elevator, dishwasher (StreetEasy's Amenities menu, Zillow's More filters). Search cards do not show
+these, so without the filter every listing that lacks them costs a page open before the gate can reject it.
+
+Zillow searches are map rectangles. An area that sits at an angle to the map (most of Manhattan) picks up the
+far shore in one box; use two or more boxes, one URL each.
+
 Price and sort order do not matter: the scout sets both itself. **The area does matter:** the scout cannot add
 it, and a search of the whole city would take many runs to read. Look at each URL or open it, and check it is
 limited to their neighborhoods before you accept it. Put each URL in "quotes" in the config.
@@ -133,6 +141,10 @@ Defaults per run: 10 listings opened in all, 6 results pages read on each site, 
 site, 60 minutes. Every
 page of every search about once a week, newest-first otherwise. TOURs re-checked after 2 days unseen,
 WATCHes after 4. Mention these; change them only if asked. Never set the wait below 5 seconds.
+
+Open each search once and add up the result counts. If the total is many times the listings opened per run,
+say how many runs the first pass will take (300 listings at 10 a run is a month) and offer to narrow the
+searches before raising the limit.
 
 Tell the user what to expect from the first few runs: with a broad search, reading every page the first
 time can take two or three runs. The newest listings are read and judged first, so the shortlist is
